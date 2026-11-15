@@ -544,12 +544,80 @@ function issueFromForm(){
 // 就能完成仓库配置。
 // repoDisplayPath shows host/path for a parsed repository, e.g. github.com/owner/name.
 function repoDisplayPath(info,fallback=''){return info?.provider==='ssh'?(info.project||info.cloneUrl||fallback):info?.webUrl?String(info.webUrl).replace(/^https?:\/\//,''):String(fallback||'')}
-function repoProviderLabel(info){return info?.provider==='ssh'?'Git SSH':info?.provider==='github'?'GitHub':'工蜂'}
+function repoProviderLabel(info){return info?.provider==='ssh'?'Git SSH':info?.provider==='github'?'GitHub':info?.provider==='gitlab'?'GitLab':'工蜂'}
+// gitlabProjectRef 与后端 domain.FormatGitLabProjectRef 对齐：
+// gitlab:<pct(instanceKey)>/<pct(fullPath)>，'/' 在 fullPath 中编码为 %2F。
+function gitlabPct(s){return encodeURIComponent(s).replace(/[!'()*]/g,c=>'%'+c.charCodeAt(0).toString(16).toUpperCase())}
+function gitlabProjectRef(instanceKey,fullPath){return 'gitlab:'+gitlabPct(instanceKey)+'/'+gitlabPct(fullPath).replace(/\//g,'%2F')}
+// parseGitLabRepoURLJS 是 domain.ParseGitLabRepoURL 的前端镜像：把 GitLab
+// Self-Managed 地址解析为 {provider:'gitlab', project, name, webUrl, cloneUrl}。
+// gitlab+ 前缀与 gitlab: 引用是显式 opt-in；其余 http(s)/ssh 地址在
+// github.com 与 git.example.com 之外一律按 GitLab 实例处理。
+function parseGitLabRepoURLJS(raw){
+  let s=String(raw||'').trim().replace(/^git\s+clone\s+/i,'').replace(/^['"]+|['"]+$/g,'');
+  if(!s)return null;
+  if(s.startsWith('gitlab:')){
+    const rest=s.slice(7),i=rest.indexOf('/');
+    if(i<=0||i===rest.length-1)return null;
+    try{
+      const key=decodeURIComponent(rest.slice(0,i)),path=decodeURIComponent(rest.slice(i+1)).replace(/^\/+|\/+$/g,'');
+      if(!key||!path||path.includes('..'))return null;
+      return {provider:'gitlab',project:s,name:path.slice(path.lastIndexOf('/')+1),webUrl:key.replace(/\/+$/,'')+'/'+path,cloneUrl:key.replace(/\/+$/,'')+'/'+path+'.git',instanceKey:key,fullPath:path};
+    }catch(_){return null}
+  }
+  s=s.replace(/^gitlab\+/,'');
+  let instanceURL='',pathPart='';
+  if(/^git@/i.test(s)){
+    const rest=s.slice(4),sep=rest.search(/[:/]/);
+    if(sep<=0)return null;
+    let hostport=rest.slice(0,sep);pathPart=rest.slice(sep+1).replace(/^\//,'');
+    const hi=hostport.indexOf(':');if(hi>=0)hostport=hostport.slice(0,hi);
+    if(!hostport)return null;
+    instanceURL='https://'+hostport.toLowerCase();
+  }else{
+    let u;try{u=new URL(s)}catch(_){return null}
+    const scheme=u.protocol.replace(':','').toLowerCase();
+    if(!['https','http','ssh','git'].includes(scheme)||!u.host)return null;
+    if(u.username&&!(scheme==='ssh'&&u.username==='git'||scheme==='git'&&u.username==='git'))return null;
+    if(u.password)return null;
+    if(scheme==='ssh'||scheme==='git')instanceURL='https://'+u.hostname.toLowerCase();
+    else instanceURL=scheme+'://'+u.host.toLowerCase();
+    pathPart=decodeURIComponent(u.pathname||'');
+  }
+  let path=pathPart.replace(/^\/+|\/+$/g,'').replace(/\.git$/i,'').replace(/\/-\/.*$/,'').replace(/^\/+|\/+$/g,'');
+  if(!path||path.split('/').some(seg=>!seg||seg==='.'||seg==='..'))return null;
+  const key=instanceURL.replace(/\/+$/,'');
+  const ref=gitlabProjectRef(key,path);
+  const web=key+'/'+path;
+  const sshish=/^(git@|ssh:\/\/|git:\/\/)/i.test(s);
+  return {provider:'gitlab',project:ref,name:path.slice(path.lastIndexOf('/')+1),webUrl:web,cloneUrl:sshish?s.replace(/\/+$/,'')+(s.endsWith('.git')?'':'.git'):web+'.git',instanceKey:key,fullPath:path};
+}
 function parseGongfengRepoURL(raw){
   const sshInfo=globalThis.LoopForgeGitSSH?.(raw);if(sshInfo)return sshInfo;
   let publicURL=String(raw||'').trim().replace(/^git clone /,'').replace(/^github:/,'https://github.com/').replace(/^(?:git@github\.com:|ssh:\/\/git@github\.com(?::22)?\/)/,'https://github.com/');
   if(publicURL.startsWith('github.com/'))publicURL='https://'+publicURL;
   try{const u=new URL(publicURL);if(u.hostname==='github.com'&&!u.username&&!u.password&&['http:','https:'].includes(u.protocol)){const parts=u.pathname.split('/').filter(Boolean),owner=parts[0],name=(parts[1]||'').replace(/\.git$/,'');if(parts.length>=2&&/^[A-Za-z0-9_.-]+$/.test(owner)&&/^[A-Za-z0-9_.-]+$/.test(name)&&!['.','..'].includes(owner)&&!['.','..'].includes(name))return {project:'github:'+owner+'/'+name,name,webUrl:'https://github.com/'+owner+'/'+name,cloneUrl:'https://github.com/'+owner+'/'+name+'.git',provider:'github'}}}catch(_){}
+  // GitLab Self-Managed：gitlab: 引用、gitlab+ 前缀，以及 github.com /
+  // git.example.com 之外的显式 URL 一律按 GitLab 实例解析（与后端
+  // catalog handler 的显式 opt-in 语义一致，provider=gitlab 由后端确认）。
+  {
+    const gl=String(raw||'').trim();
+    const glProbe=gl.replace(/^gitlab\+/,'').replace(/^git\s+clone\s+/i,'');
+    const glCandidate=gl.startsWith('gitlab:')||gl.startsWith('gitlab+')||/^(?:https?|ssh|git):\/\//i.test(glProbe)||/^git@/i.test(glProbe);
+    if(glCandidate){
+      if(gl.startsWith('gitlab:')||gl.startsWith('gitlab+')){
+        const info=parseGitLabRepoURLJS(gl);
+        if(info)return info;
+      }else{
+        const host=(glProbe.match(/^(?:https?|ssh|git):\/\/([^\/:?#]+)/i)||glProbe.match(/^git@([^\/:?#]+)/i)||[])[1];
+        const lowerHost=(host||'').toLowerCase();
+        if(lowerHost&&lowerHost!=='github.com'&&lowerHost!=='git.example.com'){
+          const info=parseGitLabRepoURLJS(gl);
+          if(info)return info;
+        }
+      }
+    }
+  }
 
   let original=String(raw||'').trim().replace(/^['"]+|['"]+$/g,'');
   if(!original)return null;
@@ -597,6 +665,15 @@ function renderRepositoryCredentialHint(){
   host.classList.toggle('git-ssh-missing',ssh);
   host.classList.toggle('repository-credential-hint',!ssh);
   if(ssh){host.setAttribute('role','alert');return renderGitSSHMissingHint(host,remote)}
+  if(remote?.provider==='gitlab'){
+    host.classList.remove('git-ssh-missing');
+    host.classList.add('repository-credential-hint');
+    host.removeAttribute('role');
+    host.hidden=false;
+    host.innerHTML=`<div><b>GitLab Self-Managed 仓库</b><p>Issue、MR 与流水线状态通过该实例 API 同步，需要配置对应的 Access Token。</p></div><button type="button" class="button ghost small" data-repository-gitlab-token>管理 GitLab Token</button>`;
+    host.querySelector('[data-repository-gitlab-token]').onclick=()=>openProviderTokens(remote.instanceKey);
+    return;
+  }
   host.sshHintVersion=(host.sshHintVersion||0)+1;
   host.hidden=false;
   host.removeAttribute('role');
@@ -612,8 +689,8 @@ function renderRepositoryCredentialHint(){
 function renderRepositoryList(){renderRepositoryCredentialHint();const project=(state.data.projects||[]).find(p=>p.id===state.projectFilter),repos=(state.data.repositories||[]).filter(r=>r.projectId===state.projectFilter);$('#repositoryProjectHint').textContent=`当前项目：${project?.name||'—'}。粘贴 GitHub 链接或 Git SSH 地址；集成分支用于检查多个 SOP 执行后是否存在合并冲突，可留空。`;$('#repositoryList').innerHTML=repos.map(r=>`<button type="button" data-edit-repo="${escapeHTML(r.id)}"><b>${escapeHTML(r.name)}</b><span>${escapeHTML(r.gongfengProjectId||r.cloneUrl)} · 主分支 ${escapeHTML(r.defaultBranch||'master')} · 集成分支 ${escapeHTML(r.integrateBranch||'未配置')}</span><em>${project?.defaultRepositoryId===r.id?'默认仓库':'编辑'}</em></button>`).join('')||'<p>当前项目还没有绑定代码仓库。</p>';$('#repositoryList').querySelectorAll('[data-edit-repo]').forEach(b=>b.onclick=()=>fillRepositoryForm((state.data.repositories||[]).find(r=>r.id===b.dataset.editRepo)))}
 function fillRepositoryForm(repo={}){const f=$('#repositoryForm');['id','name','gongfengProjectId','webUrl','cloneUrl','localPath'].forEach(k=>{if(f.elements[k])f.elements[k].value=repo[k]||''});if(f.elements.repoUrl)f.elements.repoUrl.value=repo.provider==='ssh'?repo.cloneUrl:repo.webUrl||repo.cloneUrl||repo.gongfengProjectId||'';
   const nameField=$('#repositoryNameField');if(nameField)nameField.hidden=!repo.id;f.elements.defaultBranch.value=repo.defaultBranch||'master';f.elements.integrateBranch.value=repo.integrateBranch||'';const project=(state.data.projects||[]).find(p=>p.id===state.projectFilter);f.elements.makeDefault.checked=!project?.defaultRepositoryId||project.defaultRepositoryId===repo.id;if(f.elements.repoUrl){f.elements.repoUrl.oninput=renderRepositoryCredentialHint;f.elements.repoUrl.onchange=()=>{renderRepositoryCredentialHint();const form=f.elements,fill={name:form.name.value,gongfengProjectId:form.gongfengProjectId.value,webUrl:form.webUrl.value,cloneUrl:form.cloneUrl.value};if(fillRepositoryFromLink(form.repoUrl.value,fill)){form.name.value=fill.name;form.gongfengProjectId.value=fill.gongfengProjectId;form.webUrl.value=fill.webUrl;form.cloneUrl.value=fill.cloneUrl}}};renderRepositoryCredentialHint()}
-function openRepositoryModal(){if(!state.projectFilter)return toast('请先选择项目');gitSSHKeyCache=null;fillRepositoryForm();renderRepositoryList();$('#repositoryModal').classList.add('open')}
-async function saveRepository(e){e.preventDefault();const f=e.currentTarget,project=(state.data.projects||[]).find(p=>p.id===state.projectFilter);if(f.elements.repoUrl){const fill={name:f.elements.name.value,gongfengProjectId:f.elements.gongfengProjectId.value,webUrl:f.elements.webUrl.value,cloneUrl:f.elements.cloneUrl.value};if(fillRepositoryFromLink(f.elements.repoUrl.value,fill)){f.elements.name.value=fill.name;f.elements.gongfengProjectId.value=fill.gongfengProjectId;f.elements.webUrl.value=fill.webUrl;f.elements.cloneUrl.value=fill.cloneUrl}}const payload={id:f.elements.id.value,projectId:state.projectFilter,provider:(parseGongfengRepoURL(f.elements.repoUrl?.value)?.provider||'gongfeng'),name:f.elements.name.value.trim(),gongfengProjectId:f.elements.gongfengProjectId.value.trim(),webUrl:f.elements.webUrl.value.trim(),cloneUrl:f.elements.cloneUrl.value.trim(),defaultBranch:f.elements.defaultBranch.value.trim(),integrateBranch:f.elements.integrateBranch.value.trim(),localPath:f.elements.localPath.value.trim(),repoUrl:f.elements.repoUrl?f.elements.repoUrl.value.trim():''};try{const repo=await api('/api/repositories',{method:payload.id?'PUT':'POST',body:JSON.stringify(payload)}),idx=(state.data.repositories||[]).findIndex(r=>r.id===repo.id);if(idx>=0)state.data.repositories[idx]=repo;else(state.data.repositories||(state.data.repositories=[])).push(repo);if(f.elements.makeDefault.checked&&project){const saved=await api('/api/projects',{method:'PUT',body:JSON.stringify({...project,defaultRepositoryId:repo.id})});if(saved&&saved.id){const pi=(state.data.projects||[]).findIndex(p=>p.id===saved.id);if(pi>=0)state.data.projects[pi]=saved;project.defaultRepositoryId=repo.id}else project.defaultRepositoryId=repo.id}fillRepositoryForm(repo);renderRepositoryList();renderIssues();toast(repo.provider==='ssh'?'仓库已保存；检出和推送使用 Git SSH 密钥。':(userById(state.currentUser?.id)||{}).gitTokenConfigured?'Git 仓库绑定已保存':'仓库已保存；配置 GitHub Token 后才能进行代码交付。')}catch(err){toast(err.message)}}
+function openRepositoryModal(){if(!state.projectFilter)return toast('请先选择项目');gitSSHKeyCache=null;const glBtn=$('#repositoryGitlabToken');if(glBtn)glBtn.onclick=()=>openProviderTokens();fillRepositoryForm();renderRepositoryList();$('#repositoryModal').classList.add('open')}
+async function saveRepository(e){e.preventDefault();const f=e.currentTarget,project=(state.data.projects||[]).find(p=>p.id===state.projectFilter);if(f.elements.repoUrl){const fill={name:f.elements.name.value,gongfengProjectId:f.elements.gongfengProjectId.value,webUrl:f.elements.webUrl.value,cloneUrl:f.elements.cloneUrl.value};if(fillRepositoryFromLink(f.elements.repoUrl.value,fill)){f.elements.name.value=fill.name;f.elements.gongfengProjectId.value=fill.gongfengProjectId;f.elements.webUrl.value=fill.webUrl;f.elements.cloneUrl.value=fill.cloneUrl}}const payload={id:f.elements.id.value,projectId:state.projectFilter,provider:(parseGongfengRepoURL(f.elements.repoUrl?.value)?.provider||'gongfeng'),name:f.elements.name.value.trim(),gongfengProjectId:f.elements.gongfengProjectId.value.trim(),webUrl:f.elements.webUrl.value.trim(),cloneUrl:f.elements.cloneUrl.value.trim(),defaultBranch:f.elements.defaultBranch.value.trim(),integrateBranch:f.elements.integrateBranch.value.trim(),localPath:f.elements.localPath.value.trim(),repoUrl:f.elements.repoUrl?f.elements.repoUrl.value.trim():''};try{const repo=await api('/api/repositories',{method:payload.id?'PUT':'POST',body:JSON.stringify(payload)}),idx=(state.data.repositories||[]).findIndex(r=>r.id===repo.id);if(idx>=0)state.data.repositories[idx]=repo;else(state.data.repositories||(state.data.repositories=[])).push(repo);if(f.elements.makeDefault.checked&&project){const saved=await api('/api/projects',{method:'PUT',body:JSON.stringify({...project,defaultRepositoryId:repo.id})});if(saved&&saved.id){const pi=(state.data.projects||[]).findIndex(p=>p.id===saved.id);if(pi>=0)state.data.projects[pi]=saved;project.defaultRepositoryId=repo.id}else project.defaultRepositoryId=repo.id}fillRepositoryForm(repo);renderRepositoryList();renderIssues();toast(repo.provider==='ssh'?'仓库已保存；检出和推送使用 Git SSH 密钥。':repo.provider==='gitlab'?'GitLab 仓库已保存；配置该实例 Token 后才能同步 Issue/MR。':(userById(state.currentUser?.id)||{}).gitTokenConfigured?'Git 仓库绑定已保存':'仓库已保存；配置 GitHub Token 后才能进行代码交付。')}catch(err){toast(err.message)}}
 function fillImportTAPDWorkflow(){
   const select=$('#importTAPDWorkflow');
   if(!select)return;

@@ -88,6 +88,7 @@ type Server struct {
 	schedule        *scheduleHandlers // schedule.go（align.go 并入）
 	tokens          *tokenHandlers    // auth_tokens.go
 	syncAPI         *syncHandlers     // tracker.go
+	gitlabHooks     *gitlabWebhookHandlers // gitlab_webhook.go
 	notifications   *notificationHandlers
 	botInteractions *botInteractionHandlers
 	botIdentities   *botIdentityHandlers
@@ -170,6 +171,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		schedule:        &scheduleHandlers{deps: d},
 		tokens:          &tokenHandlers{deps: d},
 		syncAPI:         &syncHandlers{deps: d},
+		gitlabHooks:     &gitlabWebhookHandlers{deps: d},
 		know:            &knowledgeHandlers{deps: d, svc: knowledge.NewService(d.repo, randomID), activity: &knowledgeActivityLog{}},
 		feedback:        &feedbackHandlers{deps: d},
 	}
@@ -570,6 +572,8 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/sync/logs", api.syncAPI.syncLogs)
 	g.GET("/api/sync/status", api.syncAPI.syncStatus)
 	g.POST("/api/sync/create", api.syncAPI.syncCreate)
+	// GitLab Self-Managed 出站 webhook；未配置 AGENTFLOW_GITLAB_WEBHOOK_SECRET 时 404。
+	g.POST("/api/hooks/gitlab", api.gitlabHooks.mergeRequest)
 	g.GET("/api/shared-schedule-tasks", api.schedule.sharedScheduleTasks)
 	g.GET("/api/shared-schedule-tasks/:id/versions", api.schedule.sharedScheduleVersions)
 	g.POST("/api/schedule-jobs/:id/publish", api.schedule.publishSharedSchedule)

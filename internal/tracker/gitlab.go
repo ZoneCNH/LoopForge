@@ -227,6 +227,13 @@ func (s *Service) gitlabMergeBranch(project, sourceBranch, targetBranch, title, 
 	return "!" + strconv.Itoa(mr.IID), nil
 }
 
+// RefreshGitLabDelivery re-reads one GitLab MR from the provider API and
+// persists the normalized delivery state. It is the webhook/polling entry
+// point; callers never trust webhook payload state directly.
+func (s *Service) RefreshGitLabDelivery(store MRDeliveryStore, project string, iid int) error {
+	return s.gitlabRefreshDelivery(store, project, iid)
+}
+
 // gitlabRefreshDelivery polls one MR's authoritative state into
 // mr_delivery_states, mirroring refreshGitHubDelivery.
 func (s *Service) gitlabRefreshDelivery(store MRDeliveryStore, project string, iid int) error {
