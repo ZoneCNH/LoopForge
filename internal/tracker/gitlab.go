@@ -26,6 +26,24 @@ func (s *Service) gitlabClientForProject(project string) (*gitlabClient, Externa
 	return newGitLabClient(ref.InstanceKey, token), ref, nil
 }
 
+// gitlabPipelineForSHA returns the newest pipeline for a commit SHA.
+// Pipeline lookup is best-effort: any error yields empty status so delivery
+// resolution never fails because CI metadata is unavailable.
+func gitlabPipelineForSHA(client *gitlabClient, projectPath, sha string) (status, webURL string) {
+	sha = strings.TrimSpace(sha)
+	if client == nil || sha == "" {
+		return "", ""
+	}
+	var items []gitlabPipeline
+	if err := client.request("GET", projectPath, "/pipelines", url.Values{
+		"sha":      {sha},
+		"per_page": {"1"},
+	}, nil, &items); err != nil || len(items) == 0 {
+		return "", ""
+	}
+	return gitLabPipelineState(items[0].Status), strings.TrimSpace(items[0].WebURL)
+}
+
 // gitlabDelivery converts a GitLab MR into the platform DeliveryMR shape.
 func gitlabDelivery(ref ExternalRepoRef, mr gitlabMergeRequest) domain.DeliveryMR {
 	state := gitLabMRState(mr.State)
@@ -92,7 +110,9 @@ func (s *Service) gitlabFindBranch(project, sourceBranch string) (domain.Deliver
 	if best == nil {
 		return domain.DeliveryMR{}, false, nil
 	}
-	return gitlabDelivery(ref, *best), true, nil
+	d := gitlabDelivery(ref, *best)
+	d.PipelineStatus, d.PipelineURL = gitlabPipelineForSHA(client, ref.FullPath, best.SHA)
+	return d, true, nil
 }
 
 // gitlabMergeBranch finds or creates the MR source→target and merges it.

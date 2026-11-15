@@ -172,7 +172,14 @@ func TestGitLabFindBranchAndStateMapping(t *testing.T) {
 	s, _, ref, _ := newGitLabFixture(t, func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if req.Method == "GET" && strings.HasSuffix(req.URL.Path, "/merge_requests") {
-			_, _ = w.Write([]byte(`[{"id":900,"iid":5,"state":"opened","source_branch":"feature/y","target_branch":"main","web_url":"https://gitlab.example.com/group/sub/repo/-/merge_requests/5"}]`))
+			_, _ = w.Write([]byte(`[{"id":900,"iid":5,"state":"opened","source_branch":"feature/y","target_branch":"main","sha":"head-sha","web_url":"https://gitlab.example.com/group/sub/repo/-/merge_requests/5"}]`))
+			return
+		}
+		if req.Method == "GET" && strings.HasSuffix(req.URL.Path, "/pipelines") {
+			if req.URL.Query().Get("sha") != "head-sha" {
+				t.Errorf("pipeline lookup must bind MR head sha, got %q", req.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(`[{"id":77,"status":"success","web_url":"https://gitlab.example.com/group/sub/repo/-/pipelines/77"}]`))
 			return
 		}
 		t.Errorf("unexpected %s %s", req.Method, req.URL.Path)
@@ -184,6 +191,9 @@ func TestGitLabFindBranchAndStateMapping(t *testing.T) {
 	}
 	if mr.IID != 5 || mr.State != "opened" || mr.Project != ref {
 		t.Fatalf("mr: %+v", mr)
+	}
+	if mr.PipelineStatus != "passed" || mr.PipelineURL == "" {
+		t.Fatalf("pipeline: %+v", mr)
 	}
 	// 状态映射：merged/closed/unknown 归一化
 	if gitLabMRState("merged") != "merged" || gitLabMRState("closed") != "closed" || gitLabMRState("weird") != "unknown" {
