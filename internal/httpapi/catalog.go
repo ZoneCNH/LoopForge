@@ -139,7 +139,6 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 		candidates := []string{primary, v.GongfengProjectID, v.CloneURL, v.WebURL, body.URL}
 		for _, cand := range candidates {
 			c := strings.TrimSpace(cand)
-			marked := strings.HasPrefix(c, "gitlab+")
 			c = strings.TrimPrefix(c, "gitlab+")
 			key, path, ref, ok := domain.ParseGitLabRepoURL(c)
 			if !ok {
@@ -150,9 +149,9 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 				v.WebURL = domain.GitLabWebURL(key, path)
 			}
 			low := strings.ToLower(c)
-			sshPaste := marked || strings.HasPrefix(low, "git@") || strings.HasPrefix(low, "ssh://") || strings.HasPrefix(low, "git://")
+			sshPaste := strings.HasPrefix(low, "git@") || strings.HasPrefix(low, "ssh://") || strings.HasPrefix(low, "git://")
 			if sshPaste {
-				clone := strings.TrimSuffix(strings.TrimSpace(cand), "/")
+				clone := strings.TrimSuffix(c, "/")
 				if !strings.HasSuffix(strings.ToLower(clone), ".git") {
 					clone += ".git"
 				}
