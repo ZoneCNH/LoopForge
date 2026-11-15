@@ -82,8 +82,12 @@ type Repository struct {
 	PipelineDefID      int       `json:"pipelineDefId,omitempty"`
 	PipelineURLPattern string    `json:"pipelineUrlPattern,omitempty"`
 	IntegrateBranch    string    `json:"integrateBranch,omitempty"`
-	CreatedAt          time.Time `json:"createdAt"`
-	UpdatedAt          time.Time `json:"updatedAt"`
+	// ExternalRef carries the structured provider identity (currently only
+	// GitLab). GongfengProjectID remains the compatibility carrier; new code
+	// should prefer this record when present.
+	ExternalRef *RepositoryExternalRef `json:"externalRef,omitempty"`
+	CreatedAt   time.Time              `json:"createdAt"`
+	UpdatedAt   time.Time              `json:"updatedAt"`
 }
 
 // PublicRepository strips the git token for API responses. Clone/push still

@@ -62,6 +62,25 @@ type gitSSHKeyRow struct {
 
 func (gitSSHKeyRow) TableName() string { return "user_git_ssh_keys" }
 
+type providerTokenRow struct {
+	UserID          int64      `gorm:"primaryKey;autoIncrement:false"`
+	ID              string     `gorm:"primaryKey;size:64"`
+	ProviderKind    string     `gorm:"column:provider_kind;size:32;not null"`
+	InstanceKey     string     `gorm:"column:instance_key;type:text;not null"`
+	Name            string     `gorm:"column:name;size:80;not null"`
+	CredentialType  string     `gorm:"column:credential_type;size:32;not null"`
+	Token           string     `gorm:"column:token;type:text;not null"`
+	TokenHint       string     `gorm:"column:token_hint;size:32"`
+	ScopesSummary   string     `gorm:"column:scopes_summary;size:255"`
+	ExpiresAt       *time.Time `gorm:"column:expires_at"`
+	LastValidatedAt *time.Time `gorm:"column:last_validated_at"`
+	Status          string     `gorm:"column:status;size:32;not null"`
+	CreatedAt       time.Time  `gorm:"column:created_at"`
+	UpdatedAt       time.Time  `gorm:"column:updated_at"`
+}
+
+func (providerTokenRow) TableName() string { return "user_provider_tokens" }
+
 type apiTokenRow struct {
 	ID         string     `gorm:"column:id;primaryKey;size:64"`
 	UserID     int64      `gorm:"column:user_id;index:idx_api_tokens_user"`
@@ -699,7 +718,7 @@ func (knowledgeSubmissionRow) TableName() string { return "knowledge_submissions
 // allModels lists every table for the sqlite test schema (AutoMigrate).
 func allModels() []any {
 	return []any{domain.BotUserBinding{}, domain.BotBindingChallenge{}, domain.BotConnection{}, domain.BotConversation{}, domain.BotInteraction{}, notificationBotRow{}, botCredentialRow{}, domain.NotificationDelivery{},
-		userRow{}, localAccountRow{}, userConfigRow{}, gitSSHKeyRow{}, authIntegrationRow{}, platformCodeBuddyKeyRow{}, apiTokenRow{}, genericTemplateRow{},
+		userRow{}, localAccountRow{}, userConfigRow{}, gitSSHKeyRow{}, providerTokenRow{}, authIntegrationRow{}, platformCodeBuddyKeyRow{}, apiTokenRow{}, genericTemplateRow{},
 		insightSourceRow{}, insightExecutionRow{},
 		projectRow{}, projectMemberRow{}, repositoryRow{}, businessDomainRow{}, businessDomainAssignmentRow{},
 		agentRow{}, ruleRow{}, skillRow{}, skillFileRow{}, mcpServerRow{}, mcpFileRow{}, executorRow{},

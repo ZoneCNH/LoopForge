@@ -116,6 +116,86 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 	if sshReference == "" {
 		sshReference = v.CloneURL
 	}
+	// GitLab Self-Managed 是显式 opt-in：provider=gitlab、gitlab: 项目引用或
+	// gitlab+ 前缀的仓库地址。歧义 URL（任意 https host）仍按原逻辑拒绝，
+	// 避免 github.com.attacker.invalid 之类的 host 混淆静默落库。
+	gitlabMode := v.Provider == "gitlab"
+	gitlabCandidate := func(s string) bool {
+		s = strings.TrimSpace(s)
+		return strings.HasPrefix(s, "gitlab+") || domain.IsGitLabProjectRef(s)
+	}
+	if !gitlabMode {
+		for _, cand := range []string{primary, v.GongfengProjectID, v.CloneURL, v.WebURL} {
+			if gitlabCandidate(cand) {
+				gitlabMode = true
+				break
+			}
+		}
+	}
+	if gitlabMode {
+		v.Provider = "gitlab"
+		// 从候选地址中解析出规范化的 gitlab: 项目引用；SSH 形式的粘贴保留为
+		// CloneURL（git transport），API 身份仍走 https instance key。
+		candidates := []string{primary, v.GongfengProjectID, v.CloneURL, v.WebURL, body.URL}
+		for _, cand := range candidates {
+			c := strings.TrimSpace(cand)
+			marked := strings.HasPrefix(c, "gitlab+")
+			c = strings.TrimPrefix(c, "gitlab+")
+			key, path, ref, ok := domain.ParseGitLabRepoURL(c)
+			if !ok {
+				continue
+			}
+			v.GongfengProjectID = ref
+			if v.WebURL == "" {
+				v.WebURL = domain.GitLabWebURL(key, path)
+			}
+			low := strings.ToLower(c)
+			sshPaste := marked || strings.HasPrefix(low, "git@") || strings.HasPrefix(low, "ssh://") || strings.HasPrefix(low, "git://")
+			if sshPaste {
+				clone := strings.TrimSuffix(strings.TrimSpace(cand), "/")
+				if !strings.HasSuffix(strings.ToLower(clone), ".git") {
+					clone += ".git"
+				}
+				if v.CloneURL == "" || v.CloneURL == clone {
+					v.CloneURL = clone
+				}
+			}
+			if v.CloneURL == "" {
+				v.CloneURL = domain.GitLabWebURL(key, path) + ".git"
+			}
+			if v.Name == "" {
+				v.Name = path[strings.LastIndex(path, "/")+1:]
+			}
+			if v.DefaultBranch == "" {
+				v.DefaultBranch = "main"
+			}
+			if v.ExternalRef == nil {
+				v.ExternalRef = &domain.RepositoryExternalRef{}
+			}
+			v.ExternalRef.ProviderKind = domain.GitLabProviderKind
+			v.ExternalRef.InstanceKey = key
+			v.ExternalRef.FullPath = path
+			v.ExternalRef.APIBaseURL = key + "/api/v4"
+			v.ExternalRef.DefaultBranch = v.DefaultBranch
+			v.ExternalRef.HTTPSCloneURL = domain.GitLabWebURL(key, path) + ".git"
+			if sshPaste {
+				v.ExternalRef.SSHCloneURL = v.CloneURL
+			}
+			break
+		}
+		if body.RepoURL != "" && body.URL != "" {
+			_, _, r1, ok1 := domain.ParseGitLabRepoURL(strings.TrimPrefix(body.RepoURL, "gitlab+"))
+			_, _, r2, ok2 := domain.ParseGitLabRepoURL(strings.TrimPrefix(body.URL, "gitlab+"))
+			if ok1 && ok2 && r1 != r2 {
+				c.JSON(400, gin.H{"error": "repoUrl 与 url 指向不同仓库"})
+				return
+			}
+		}
+		if _, _, refOK := domain.ParseGitLabProjectRef(v.GongfengProjectID); !refOK {
+			c.JSON(400, gin.H{"error": "GitLab 仓库地址无法识别，请提供 https://<gitlab-host>/<group>/<repo> 或 gitlab:<instance>/<path>"})
+			return
+		}
+	}
 	// GitHub and the optional legacy host keep their existing token flow (and
 	// GitHub's automatic pull requests) for SSH-style addresses unless the
 	// caller explicitly selects SSH authentication.
@@ -126,7 +206,7 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 		}
 	}
 	githubShorthand := primary != "" && strings.HasPrefix(strings.TrimPrefix(primary, "git clone "), "github:")
-	if v.Provider == domain.RepositoryProviderSSH || (gitwork.IsSSHReference(sshReference) && !legacySSH && !githubShorthand) {
+	if !gitlabMode && (v.Provider == domain.RepositoryProviderSSH || (gitwork.IsSSHReference(sshReference) && !legacySSH && !githubShorthand)) {
 		remote, err := gitwork.ParseSSHRemote(sshReference)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -166,7 +246,7 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 	}
 	// An explicit pasted URL is authoritative. Generated identity/web/clone
 	// fields must not silently redirect a correct URL to another repository.
-	if primary != "" {
+	if primary != "" && !gitlabMode {
 		info, ok := domain.ParseRepositoryURL(primary)
 		if !ok {
 			c.JSON(400, gin.H{"error": "仓库 URL 无法识别，请提供 GitHub 链接或 Git SSH 克隆地址"})
@@ -190,7 +270,7 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 	if v.GongfengProjectID != "" {
 		if info, ok := domain.ParseRepositoryURL(v.GongfengProjectID); ok {
 			v.GongfengProjectID = info.Project
-		} else if !strings.HasPrefix(v.GongfengProjectID, "github:") && !domain.IsSafeGongfengProjectID(v.GongfengProjectID) {
+		} else if !strings.HasPrefix(v.GongfengProjectID, "github:") && !domain.IsGitLabProjectRef(v.GongfengProjectID) && !domain.IsSafeGongfengProjectID(v.GongfengProjectID) {
 			c.JSON(400, map[string]string{"error": "仓库链接无法识别：请提供有效的 GitHub 仓库地址"})
 			return
 		}
@@ -209,7 +289,7 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			v.Name = parsed.Name
 		}
 	}
-	if v.GongfengProjectID != "" {
+	if v.GongfengProjectID != "" && !domain.IsGitLabProjectRef(v.GongfengProjectID) {
 		if v.WebURL == "" {
 			v.WebURL = "https://" + domain.GongfengRepoHost + "/" + v.GongfengProjectID
 		}
@@ -220,8 +300,30 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			v.Name = v.GongfengProjectID[strings.LastIndex(v.GongfengProjectID, "/")+1:]
 		}
 	}
+	if domain.IsGitLabProjectRef(v.GongfengProjectID) {
+		if key, path, _, ok := domain.ParseGitLabRepoURL(v.GongfengProjectID); ok {
+			if v.WebURL == "" {
+				v.WebURL = domain.GitLabWebURL(key, path)
+			}
+			if v.CloneURL == "" {
+				v.CloneURL = v.WebURL + ".git"
+			}
+			if v.Name == "" {
+				v.Name = path[strings.LastIndex(path, "/")+1:]
+			}
+			if v.ExternalRef == nil {
+				v.ExternalRef = &domain.RepositoryExternalRef{}
+			}
+			v.ExternalRef.ProviderKind = domain.GitLabProviderKind
+			v.ExternalRef.InstanceKey = key
+			v.ExternalRef.FullPath = path
+			v.ExternalRef.APIBaseURL = key + "/api/v4"
+			v.ExternalRef.DefaultBranch = v.DefaultBranch
+			v.ExternalRef.HTTPSCloneURL = v.CloneURL
+		}
+	}
 	if v.ProjectID == "" || v.Name == "" || v.GongfengProjectID == "" {
-		c.JSON(400, map[string]string{"error": "请提供 projectId 和 GitHub 仓库地址 repoUrl，名称和仓库标识会自动识别"})
+		c.JSON(400, map[string]string{"error": "请提供 projectId 和 GitHub/GitLab 仓库地址 repoUrl，名称和仓库标识会自动识别"})
 		return
 	}
 	if strings.HasPrefix(v.GongfengProjectID, "github:") {
@@ -230,15 +332,24 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			v.DefaultBranch = "main"
 		}
 	}
+	if domain.IsGitLabProjectRef(v.GongfengProjectID) {
+		v.Provider = "gitlab"
+		if v.DefaultBranch == "" {
+			v.DefaultBranch = "main"
+		}
+	}
 	if v.Provider == "" {
 		v.Provider = "gongfeng"
 	}
-	if v.Provider != "gongfeng" && v.Provider != "github" {
-		c.JSON(400, map[string]string{"error": "provider must be github or gongfeng"})
+	if v.Provider != "gongfeng" && v.Provider != "github" && v.Provider != "gitlab" {
+		c.JSON(400, map[string]string{"error": "provider must be github, gitlab or gongfeng"})
 		return
 	}
 	if v.DefaultBranch == "" {
 		v.DefaultBranch = "master"
+	}
+	if v.ExternalRef != nil && v.ExternalRef.ProviderKind == domain.GitLabProviderKind {
+		v.ExternalRef.DefaultBranch = v.DefaultBranch
 	}
 	if domain.URLHasCredentials(v.WebURL) {
 		c.JSON(400, map[string]string{"error": "webUrl 不能包含账号、密码或 Token，请去掉 @ 前的部分"})

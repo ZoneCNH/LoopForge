@@ -279,6 +279,10 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/users/:id/git-ssh-keys", api.users.gitSSHKeys)
 	g.PUT("/api/users/:id/git-ssh-keys", api.users.gitSSHKeys)
 	g.DELETE("/api/users/:id/git-ssh-keys/:keyID", api.users.gitSSHKeys)
+	g.GET("/api/users/:id/provider-tokens", api.users.providerTokens)
+	g.PUT("/api/users/:id/provider-tokens", api.users.providerTokens)
+	g.DELETE("/api/users/:id/provider-tokens/:tokenID", api.users.providerTokens)
+	g.POST("/api/users/:id/provider-tokens/validate", api.users.validateProviderToken)
 	g.POST("/api/users/:id/cli-models/probe", api.users.probeCLIModels)
 	g.Any("/api/users/:id", func(c *gin.Context) {
 		c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})

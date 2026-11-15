@@ -10,7 +10,7 @@
 
 | 资产 | 现状存储 | v1 变化 |
 |---|---|---|
-| GitLab PAT/project/group token | — | `user_provider_tokens`（MySQL 明文 + 应用层脱敏） |
+| GitLab PAT/project/group token | — | `user_provider_tokens`（MySQL 明文 + 应用层脱敏；与 `git_token` 现状一致，决策见 R-5） |
 | GitLab webhook secret | — | env 或实例配置（v1 简化） |
 | SSH 私钥 | `user_git_ssh_keys` + ssh-agent 注入 | 不变 |
 | GitHub token | `users.git_token` 明文 | 不变（遗留风险，见 R-legacy） |
@@ -34,6 +34,7 @@
 ## 3. 已知限制（v1 接受）
 
 - **R-legacy**：`users.git_token` 明文存储是既有风险，本 spec 不扩大也不收敛；GitLab token 不落该字段。
+- **R-5**：`user_provider_tokens.token` 明文存储为**已接受决策**（2026-11-15）：与 `users.git_token`、bot `ciphertext` 列的现有凭据姿态一致；应用层仅经 `ProviderTokenSecret` 单点读取、公开查询不 select 该列、响应只出 `token_hint`。后续统一引入 secret manager/信封加密时需同时覆盖 git_token 与本表，属独立加固项，不在本 spec 范围。
 - **R-1**：per-instance CA bundle、mTLS client cert 不支持（GitLab 双向 TLS 实例无法接入，列入 v1.1）。
 - **R-2**：webhook secret v1 存 env/实例配置，不支持 per-instance 独立 secret 轮换 UI。
 - **R-3**：GitLab OAuth 不做（ADR 范围外）；token 过期靠 `last_validated_at` + `AUTH_FAILED` 状态提示人工更新。
