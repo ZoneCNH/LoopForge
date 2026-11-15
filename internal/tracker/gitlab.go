@@ -77,7 +77,7 @@ func (s *Service) gitlabFindBranch(project, sourceBranch string) (domain.Deliver
 	if src == "" {
 		return domain.DeliveryMR{}, false, nil
 	}
-	var best *gitlabMergeRequest
+	var best, bestClosed *gitlabMergeRequest
 	err = client.listPages(ref.FullPath, "/merge_requests", url.Values{
 		"state":         {"all"},
 		"source_branch": {src},
@@ -95,6 +95,10 @@ func (s *Service) gitlabFindBranch(project, sourceBranch string) (domain.Deliver
 			}
 			state := gitLabMRState(item.State)
 			if state == "closed" {
+				if bestClosed == nil || item.IID > bestClosed.IID {
+					cp := item
+					bestClosed = &cp
+				}
 				continue
 			}
 			if best == nil || item.IID > best.IID {
@@ -102,16 +106,21 @@ func (s *Service) gitlabFindBranch(project, sourceBranch string) (domain.Deliver
 				best = &cp
 			}
 		}
-		return best == nil, nil // keep paging while nothing found
+		return best == nil && bestClosed == nil, nil // keep paging while nothing found
 	})
 	if err != nil {
 		return domain.DeliveryMR{}, false, err
 	}
-	if best == nil {
+	// 与 githubFindBranch 一致：优先非 closed 的 MR，仅有 closed 时返回最新 closed。
+	picked := best
+	if picked == nil {
+		picked = bestClosed
+	}
+	if picked == nil {
 		return domain.DeliveryMR{}, false, nil
 	}
-	d := gitlabDelivery(ref, *best)
-	d.PipelineStatus, d.PipelineURL = gitlabPipelineForSHA(client, ref.FullPath, best.SHA)
+	d := gitlabDelivery(ref, *picked)
+	d.PipelineStatus, d.PipelineURL = gitlabPipelineForSHA(client, ref.FullPath, picked.SHA)
 	return d, true, nil
 }
 
@@ -144,7 +153,7 @@ func (s *Service) gitlabMergeBranch(project, sourceBranch, targetBranch, title, 
 			if !domain.SameGitBranch(strings.TrimSpace(item.SourceBranch), src) {
 				continue
 			}
-			if targetBranch != "" && !strings.EqualFold(strings.TrimSpace(item.TargetBranch), targetBranch) {
+			if tgt := strings.TrimSpace(targetBranch); tgt != "" && !strings.EqualFold(strings.TrimSpace(item.TargetBranch), tgt) {
 				continue
 			}
 			cp := item
@@ -211,6 +220,9 @@ func (s *Service) gitlabMergeBranch(project, sourceBranch, targetBranch, title, 
 	}
 	if err := client.request("PUT", ref.FullPath, "/merge_requests/"+strconv.Itoa(mr.IID)+"/merge", nil, mergeBody, &result); err != nil {
 		return "", fmt.Errorf("merge MR !%d: %w", mr.IID, err)
+	}
+	if gitLabMRState(result.State) != "merged" {
+		return "", fmt.Errorf("%w: merge request !%d returned state %q", ErrProviderConflict, mr.IID, result.State)
 	}
 	return "!" + strconv.Itoa(mr.IID), nil
 }
