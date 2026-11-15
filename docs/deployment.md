@@ -106,6 +106,17 @@ Repositories automatically use the current user's key for their SSH host and por
 
 SSH handles clone, fetch and push. A conversation delivery returns the branch and commit SHA. You can optionally add a repository web URL to open the host and create a PR/MR manually. Issue import and PR/MR automation need a hosting API credential. To automate those actions, add a hosting-specific MCP in **Settings → Assets → MCP**, give it its own scoped token, and attach it to the relevant agent or workflow. [CNB does not support Git SSH](https://docs.cnb.cool/en/guide/git-access.html); it uses HTTPS with a CNB access token, which is outside this integration.
 
+### GitLab Self-Managed
+
+Paste a GitLab project URL (for example `https://gitlab.example.com/group/sub/repo`, an SSH clone address, or a `gitlab:` reference) into the repository form. Any HTTP(S) or SSH host other than `github.com` and the legacy Gongfeng host is treated as a GitLab instance; prefix the address with `gitlab+` to force the classification explicitly. Issue import, merge requests and pipeline status use the GitLab REST API v4.
+
+Each user manages per-instance tokens in the repository dialog (**GitLab 实例 Token**): one entry per instance base URL (`https://host[:port]`, no path), holding a Personal/Project/Group Access Token with the `api` scope. Tokens are scoped to `(user, provider, instance)`; Issue/MR calls use the project owner's token, matching the GitHub flow. Git transport still uses the user's Git SSH key or HTTPS credentials — the API token never appears in clone URLs.
+
+Two optional environment variables cover private deployments:
+
+- `AGENTFLOW_GITLAB_CA_BUNDLE` — path to a PEM file with extra CA certificates, for instances that terminate TLS with a private CA. Only GitLab REST calls use it.
+- `AGENTFLOW_GITLAB_WEBHOOK_SECRET` — shared secret for `POST /api/hooks/gitlab`. When set, configure each GitLab project webhook (Merge request events) with this value as the secret token; the platform verifies `X-Gitlab-Token` and re-reads the MR state from the API, so delivery stays correct even without webhooks (polling remains the fallback).
+
 ## Accounts
 
 The first account created in the browser becomes the platform administrator. After that, anyone who can reach the login page may sign up as a regular user while `AGENTFLOW_ALLOW_SIGNUP` is `true` (the default). Registered users can create requirements and run SOPs on your workers, so set `AGENTFLOW_ALLOW_SIGNUP=false` for any installation reachable from untrusted networks and create accounts explicitly instead.

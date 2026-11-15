@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/tracker"
 
 	"github.com/gin-gonic/gin"
 )
@@ -152,7 +153,8 @@ func verifyGitLabToken(ctx context.Context, instanceKey, token string) providerT
 	}
 	req.Header.Set("PRIVATE-TOKEN", token)
 	req.Header.Set("Accept", "application/json")
-	client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	client := *tracker.GitLabAPIHTTPClient()
+	client.Timeout = 10 * time.Second
 	resp, err := client.Do(req)
 	if err != nil {
 		return providerTokenValidateResult{Error: fmt.Sprintf("无法连接 GitLab 实例（%s）", instanceKey)}

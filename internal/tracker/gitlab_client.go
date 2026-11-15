@@ -2,13 +2,18 @@ package tracker
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,13 +30,61 @@ func newGitLabClient(instanceKey, token string) *gitlabClient {
 	return &gitlabClient{
 		apiBase: strings.TrimRight(instanceKey, "/") + "/api/v4",
 		token:   token,
-		http: &http.Client{
-			Timeout: 30 * time.Second,
-			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
+		http:    gitlabHTTPClient(),
+	}
+}
+
+// AGENTFLOW_GITLAB_CA_BUNDLE points to a PEM file with extra CA certificates
+// for self-managed GitLab instances that terminate TLS with a private CA.
+// The bundle is process-wide and only affects GitLab REST calls.
+const gitlabCABundleEnv = "AGENTFLOW_GITLAB_CA_BUNDLE"
+
+var (
+	gitlabTransportOnce sync.Once
+	gitlabTransport     *http.Transport
+)
+
+// GitLabAPIHTTPClient returns the shared GitLab REST HTTP client (private-CA
+// aware via AGENTFLOW_GITLAB_CA_BUNDLE). Callers may clone it to adjust
+// timeouts; the underlying transport is shared.
+func GitLabAPIHTTPClient() *http.Client {
+	return gitlabHTTPClient()
+}
+
+func gitlabHTTPClient() *http.Client {
+	gitlabTransportOnce.Do(func() {
+		gitlabTransport = &http.Transport{TLSClientConfig: gitlabTLSConfig()}
+	})
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: gitlabTransport,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
 		},
 	}
+}
+
+func gitlabTLSConfig() *tls.Config {
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	bundle := strings.TrimSpace(os.Getenv(gitlabCABundleEnv))
+	if bundle == "" {
+		return cfg
+	}
+	raw, err := os.ReadFile(bundle)
+	if err != nil {
+		log.Printf("gitlab: cannot read %s (%v); falling back to system CA pool", gitlabCABundleEnv, err)
+		return cfg
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(raw) {
+		log.Printf("gitlab: %s contains no valid CA certificates; falling back to system CA pool", gitlabCABundleEnv)
+		return cfg
+	}
+	cfg.RootCAs = pool
+	return cfg
 }
 
 // request performs one API call. projectPath is the URL-escaped

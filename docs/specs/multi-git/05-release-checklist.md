@@ -8,7 +8,7 @@
 ## G0 — Scope（范围确认）
 
 - [ ] v1 scope 与 `01-architecture-spec.md` §9 一致：gitlab REST adapter + `user_provider_tokens` + `gitlab:` 身份编码 + polling 状态同步 + 契约测试 + 真实 E2E
-- [ ] 非目标确认：无 ProviderInstance 表、无 OAuth、无 webhook 入站实装（路由 501）、无 per-instance CA bundle
+- [x] 非目标确认：无 ProviderInstance 表、无 OAuth、无 per-instance CA UI；webhook v1 已实装（MR Hook → 权威回读）；私有 CA 走 `AGENTFLOW_GITLAB_CA_BUNDLE` 环境变量
 - [ ] 支持的 GitLab 版本范围已文档化（建议 ≥16.x Free tier）
 
 ## G1 — Architecture（架构）
@@ -22,10 +22,10 @@
 
 ## G2 — Data（数据）
 
-- [ ] `migrations/027_user_provider_tokens.sql`、`028_repository_external_ref.sql` 已编写并在测试库执行成功
+- [x] `migrations/034_user_provider_tokens.sql` 已编写（`external_ref` 走 repositories.payload JSON，无需独立列）并在测试库执行成功
 - [ ] 唯一索引 `(user_id, provider_kind, instance_key)` 生效
 - [ ] `external_ref_json` 为 NULL 的存量行读路径回退正常（解析 `GongfengProjectID`）
-- [ ] 回滚方案：drop 两表/两列的 SQL 已写入 migration 注释或 runbook
+- [ ] 回滚方案：drop `user_provider_tokens` 表的 SQL 已写入 migration 注释或 runbook
 - [ ] MySQL 集成测试（`make test-mysql`）通过
 
 ## G3 — Git Transport
@@ -47,7 +47,7 @@
 - [ ] `syncMRDeliveryStates` gitlab 分支工作：stale 刷新、终态保护、unknown 不降级
 - [ ] polling 幂等：重复 tick 不产生重复写/重复通知
 - [ ] Pipeline status 映射契约测试通过（E10）
-- [ ] webhook 路由存在且返回 501（未实装时不静默 404）
+- [x] webhook 路由 `POST /api/hooks/gitlab` 已实装：`X-Gitlab-Token` 校验（`AGENTFLOW_GITLAB_WEBHOOK_SECRET`，未配置 404）、仅 merge_request 事件、状态由 provider API 权威回读写入（天然幂等）
 - [ ] 若启用 webhook：伪造 token 拒绝、重复事件幂等、乱序不回退（T3/T8 验证）
 
 ## G6 — Security
@@ -83,7 +83,7 @@
 ## G10 — Release
 
 - [ ] 版本号确定（建议 minor：新 provider 能力）
-- [ ] migration 编号连续无冲突（当前最大 026，新增 027/028）
+- [ ] migration 编号连续无冲突（当前最大 034，新增 034_user_provider_tokens）
 - [ ] Evidence Manifest 生成（commit sha、测试结果、review 状态）
 - [ ] 所有 Required Gate 状态 = passed；任何 failed → 保持 BLOCKED
 - [ ] Release Notes 含：新能力、配置项、已知限制、回滚说明
@@ -99,5 +99,5 @@
 | ADR-3 | `GongfengProjectID` 保留 + `external_ref_json` | accepted |
 | ADR-4 | polling 默认 + 可选 webhook | accepted |
 | D-v1 | ProviderInstance 表不建（instance_key 逻辑实例） | accepted |
-| D-v1 | Webhook 入站 v1 不实装（501） | accepted |
+| D-v1 | Webhook 入站 v1 实装为 MR Hook → 权威回读（单一 env secret） | accepted |
 | D-v1 | GitLab OAuth v1 不做 | accepted |
