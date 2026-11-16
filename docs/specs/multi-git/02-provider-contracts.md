@@ -242,11 +242,12 @@ var (
 | detailed_merge_status | MergeStatus |
 |---|---|
 | `mergeable` | `mergeable` |
-| `checking` / `unchecked` / `preparing` | `unknown`（异步检查中，禁止当 mergeable） |
+| `checking` / `unchecked` / `preparing` / `cannot_be_merged_recheck` | `unknown`（异步检查中，禁止当 mergeable） |
+| `ci_still_running` | `unknown`（pipeline 运行中；merge 时走 MWPS，见下） |
 | `ci_must_pass` / `discussions_not_resolved` / `blocked_status` / `broken_status` / `not_approved` / `external_status_checks` / `requested_changes` / `draft_status` / `policies_denied` 等 | `blocked` |
 | 其他/空 | `unknown` |
 
-Merge 执行前必须重查 `detailed_merge_status`；`checking`/`unchecked` 时返回 `ErrConflict` 让调用方重试，不得直接 merge。
+Merge 执行前必须重查 `detailed_merge_status`；`checking`/`unchecked`/`preparing` 等异步状态时返回 `ErrConflict` 让调用方重试，不得直接 merge。唯一例外：`ci_still_running`（pipeline 存在且运行中、项目强制 pipeline 成功）时改用 `merge_when_pipeline_succeeds=true` 调 merge，由 GitLab 在 CI 通过后自动合并；此时返回的 MR ref 表示「已受理调度」而非「已合并」，最终状态以 delivery 轮询/webhook 回读为准。pipeline 被 skip 或失败导致的 `ci_must_pass` 仍归 `blocked` → `ErrDenied`。
 
 ### 4.3 GitLab Pipeline status → `PipelineSummary.State`
 

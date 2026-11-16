@@ -168,6 +168,35 @@ func TestGitLabMergeBranchAsyncStatusIsConflict(t *testing.T) {
 	}
 }
 
+func TestGitLabMergeBranchPipelineRunningArmsMWPS(t *testing.T) {
+	var mergeBody map[string]any
+	s, _, ref, _ := newGitLabFixture(t, func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case req.Method == "GET" && strings.HasSuffix(req.URL.Path, "/merge_requests"):
+			_, _ = w.Write([]byte(`[{"id":900,"iid":3,"state":"opened","source_branch":"feature/x","target_branch":"main","sha":"s","detailed_merge_status":"ci_still_running"}]`))
+		case req.Method == "GET" && strings.HasSuffix(req.URL.Path, "/merge_requests/3"):
+			_, _ = w.Write([]byte(`{"id":900,"iid":3,"state":"opened","source_branch":"feature/x","target_branch":"main","sha":"head-sha","detailed_merge_status":"ci_still_running"}`))
+		case req.Method == "PUT" && strings.HasSuffix(req.URL.Path, "/merge_requests/3/merge"):
+			_ = json.NewDecoder(req.Body).Decode(&mergeBody)
+			_, _ = w.Write([]byte(`{"state":"opened","merge_when_pipeline_succeeds":true}`))
+		default:
+			t.Errorf("unexpected %s %s", req.Method, req.URL.Path)
+			w.WriteHeader(404)
+		}
+	})
+	refOut, err := s.EnsureAndMergeBranchMR(ref, "feature/x", "main", "", "")
+	if err != nil || refOut != "!3" {
+		t.Fatalf("mwps merge: %q %v", refOut, err)
+	}
+	if mergeBody["merge_when_pipeline_succeeds"] != true {
+		t.Fatalf("merge body must arm MWPS, got %v", mergeBody)
+	}
+	if mergeBody["sha"] != "head-sha" {
+		t.Fatalf("merge must bind observed sha, got %v", mergeBody)
+	}
+}
+
 func TestGitLabFindBranchAndStateMapping(t *testing.T) {
 	s, _, ref, _ := newGitLabFixture(t, func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

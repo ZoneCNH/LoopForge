@@ -215,9 +215,23 @@ func TestGitLabLiveMRMerge(t *testing.T) {
 	}
 	t.Logf("EnsureAndMergeBranchMR returned %s", mergedRef)
 
-	mr, found, err := svc.FindBranchMR(ref, branch)
-	if err != nil {
-		t.Fatalf("FindBranchMR after merge: %v", err)
+	// On pipeline-required projects the merge may be armed via
+	// merge-when-pipeline-succeeds and land asynchronously; poll FindBranchMR
+	// until the MR reports merged.
+	var mr domain.DeliveryMR
+	found := false
+	for attempt := 0; attempt < 120; attempt++ {
+		mr, found, err = svc.FindBranchMR(ref, branch)
+		if err != nil {
+			t.Fatalf("FindBranchMR after merge: %v", err)
+		}
+		if found && mr.State == "merged" {
+			break
+		}
+		if attempt%8 == 0 {
+			t.Logf("waiting for MR merge, state=%q found=%v", mr.State, found)
+		}
+		time.Sleep(15 * time.Second)
 	}
 	if !found {
 		t.Fatal("merged MR not found by source branch")

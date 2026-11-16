@@ -219,6 +219,13 @@ func (s *Service) gitlabMergeBranch(project, sourceBranch, targetBranch, title, 
 	switch gitLabEffectiveMergeStatus(*mr) {
 	case "mergeable":
 	case "unknown":
+		// ci_still_running means a pipeline exists and is still running on a
+		// project that requires green pipelines. Arm merge-when-pipeline-
+		// succeeds so GitLab lands the MR itself once CI passes; every other
+		// transient state keeps the retryable-conflict contract.
+		if strings.EqualFold(strings.TrimSpace(mr.DetailedMergeStatus), "ci_still_running") {
+			return s.gitlabMergeWhenPipelineSucceeds(client, ref, mr)
+		}
 		return "", fmt.Errorf("%w: merge request !%d merge status is %q", ErrProviderConflict, mr.IID, mr.DetailedMergeStatus)
 	default:
 		return "", fmt.Errorf("%w: merge request !%d cannot merge (status %q)", ErrProviderDenied, mr.IID, mr.DetailedMergeStatus)
@@ -235,6 +242,32 @@ func (s *Service) gitlabMergeBranch(project, sourceBranch, targetBranch, title, 
 		return "", fmt.Errorf("merge MR !%d: %w", mr.IID, err)
 	}
 	if gitLabMRState(result.State) != "merged" {
+		return "", fmt.Errorf("%w: merge request !%d returned state %q", ErrProviderConflict, mr.IID, result.State)
+	}
+	return "!" + strconv.Itoa(mr.IID), nil
+}
+
+// gitlabMergeWhenPipelineSucceeds arms GitLab's merge-when-pipeline-succeeds
+// on an MR whose pipeline is still running. GitLab merges the MR itself once
+// CI passes, so the returned "!N" ref means "merge scheduled", not "merged" —
+// callers must rely on delivery-state polling for the final outcome. A 405/406
+// (MWPS not permitted, SHA race) surfaces as ErrProviderConflict.
+func (s *Service) gitlabMergeWhenPipelineSucceeds(client *gitlabClient, ref ExternalRepoRef, mr *gitlabMergeRequest) (string, error) {
+	mergeBody := map[string]any{
+		"should_remove_source_branch":  false,
+		"merge_when_pipeline_succeeds": true,
+	}
+	if sha := strings.TrimSpace(mr.SHA); sha != "" {
+		mergeBody["sha"] = sha
+	}
+	var result struct {
+		State                     string `json:"state"`
+		MergeWhenPipelineSucceeds bool   `json:"merge_when_pipeline_succeeds"`
+	}
+	if err := client.request("PUT", ref.FullPath, "/merge_requests/"+strconv.Itoa(mr.IID)+"/merge", nil, mergeBody, &result); err != nil {
+		return "", fmt.Errorf("schedule MR !%d merge when pipeline succeeds: %w", mr.IID, err)
+	}
+	if gitLabMRState(result.State) != "merged" && !result.MergeWhenPipelineSucceeds {
 		return "", fmt.Errorf("%w: merge request !%d returned state %q", ErrProviderConflict, mr.IID, result.State)
 	}
 	return "!" + strconv.Itoa(mr.IID), nil
