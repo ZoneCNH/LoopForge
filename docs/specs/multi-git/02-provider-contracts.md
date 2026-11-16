@@ -29,10 +29,12 @@ func ParseGitLabProjectRef(project string) (instanceKey, fullPath string, ok boo
 - `github:`、工蜂数字 ID、TAPD 项目 ID 的既有解析不受影响；`ParseGitLabProjectRef` 只在 `gitlab:` 前缀时返回 ok。
 - `IsSafeGongfengProjectID`（`internal/domain/project.go:288`）需扩展白名单允许 `gitlab:` 前缀，否则仓库保存路径会拒绝。
 
-### 1.2 `RepositoryExternalRef`（external_ref_json 列）
+### 1.2 `RepositoryExternalRef`（内嵌 repositories payload JSON）
+
+> as-built：无独立 `external_ref_json` 列；`domain.Repository.ExternalRef` 随仓库 payload JSON 持久化，API 输出同字段。
 
 ```go
-// domain.RepositoryExternalRef —— repositories.external_ref_json 的反序列化目标
+// domain.RepositoryExternalRef —— Repository.ExternalRef 的反序列化目标
 type RepositoryExternalRef struct {
     ProviderKind  string `json:"providerKind"`            // "gitlab"
     InstanceKey   string `json:"instanceKey"`             // 同 §1.1
@@ -45,7 +47,7 @@ type RepositoryExternalRef struct {
 }
 ```
 
-解析优先级：`external_ref_json` 有效 → 用结构化字段；否则回退 `ParseGitLabProjectRef(GongfengProjectID)`，`ExternalID` 留空时 GitLab adapter 首次调用 `GET /projects/:fullPath` 回填（path 可能 rename，以数字 id 为准——Spec §5.3 要求）。
+解析优先级：`Repository.ExternalRef` 有效 → 用结构化字段；否则回退 `ParseGitLabProjectRef(GongfengProjectID)`，`ExternalID` 留空时 GitLab adapter 首次调用 `GET /projects/:fullPath` 回填（path 可能 rename，以数字 id 为准——Spec §5.3 要求）。catalog 写路径一律由服务端从规范化 ref 重建 ExternalRef，客户端提交值不可信。
 
 ## 2. CollaborationProvider 契约
 
