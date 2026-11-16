@@ -825,6 +825,8 @@ paths:
       responses:
         "200":
           description: Event accepted or ignored
+        "400":
+          description: Malformed payload or missing merge request iid
         "401":
           description: Missing or mismatched X-Gitlab-Token
         "404":

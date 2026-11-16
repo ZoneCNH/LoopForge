@@ -342,6 +342,17 @@ function issueExternallyDone(i){
 function deliveryMRLinked(i){return deliveryMRList(i).length>0}
 // 待处理 MR：已创建但还没合入的 MR（opened/reopened）。状态未知的历史 MR 不计入，避免数字虚高。
 function pendingDeliveryMRCount(i){return deliveryMRList(i).filter(m=>['opened','reopened'].includes(String(m.state||'').toLowerCase())).length}
+// gitlab: ref 是编码后的规范化身份，展示时还原成 host/path 便于阅读。
+function gitlabRefDisplay(ref){
+  const s=String(ref||'');
+  if(!s.startsWith('gitlab:'))return s;
+  const rest=s.slice(7),i=rest.indexOf('/');
+  if(i<=0)return s;
+  try{
+    const key=decodeURIComponent(rest.slice(0,i)).replace(/^https?:\/\//,''),path=decodeURIComponent(rest.slice(i+1));
+    return key+'/'+path;
+  }catch(_){return s}
+}
 // 多仓库交付每个仓库一个 MR；旧数据只有 deliveryMrUrl。
 function deliveryMRList(i){
   const withRef=m=>{const hit=String(m.url).match(/git\.example\.com\/(.+?)(?:\/-)?\/merge_requests\/(\d+)/);return{...m,project:m.project||hit?.[1]||'',iid:m.iid||Number(hit?.[2])||0}};
@@ -358,7 +369,7 @@ function deliveryMRButtons(issue,{cls='button ghost small'}={}){
     const repo=mr.repository||String(mr.project||'').split('/').pop();
     const label=list.length>1?`打开 MR · ${repo||'仓库'}${iid?` !${iid}`:''}`:'打开 MR';
     const st=deliveryMRStateText[String(mr.state||'').toLowerCase()];
-    return `<a class="${cls}" href="${escapeHTML(safeURL(mr.url))}" target="_blank" rel="noopener noreferrer" title="${escapeHTML([mr.project,st].filter(Boolean).join(' · ')||mr.url)}">${escapeHTML(label)} ↗</a>`;
+    return `<a class="${cls}" href="${escapeHTML(safeURL(mr.url))}" target="_blank" rel="noopener noreferrer" title="${escapeHTML([gitlabRefDisplay(mr.project),st].filter(Boolean).join(' · ')||mr.url)}">${escapeHTML(label)} ↗</a>`;
   }).join('');
 }
 function deliveryLockedLabel(i){

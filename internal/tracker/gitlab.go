@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -47,8 +48,14 @@ func gitlabPipelineForSHA(client *gitlabClient, projectPath, sha string) (status
 // gitlabDelivery converts a GitLab MR into the platform DeliveryMR shape.
 func gitlabDelivery(ref ExternalRepoRef, mr gitlabMergeRequest) domain.DeliveryMR {
 	state := gitLabMRState(mr.State)
+	// Repository 供前端按仓库名匹配/展示；Project 保留编码后的 gitlab: ref。
+	repoName := ref.FullPath
+	if i := strings.LastIndex(repoName, "/"); i >= 0 {
+		repoName = repoName[i+1:]
+	}
 	d := domain.DeliveryMR{
 		Project:       ref.ProjectID(),
+		Repository:    repoName,
 		IID:           mr.IID,
 		URL:           strings.TrimSpace(mr.WebURL),
 		State:         state,
@@ -107,12 +114,16 @@ func (s *Service) gitlabFindBranch(project, sourceBranch string) (domain.Deliver
 			}
 		}
 		// 只要还没见到非 closed MR 就继续翻页：closed 只作兜底，
-		// 更新的 closed 不能挡住更旧的 opened/reopened。
+		// 更新的 closed 不能挡住更旧的 opened/reopened。页内取 IID 最大者；
+		// IID 序与 updated_at 序不一致时可能漏掉极端边界的 MR，
+		// 与 gongfeng 侧"取最新一条"的取舍一致，可接受。
 		return best == nil, nil
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, errGitLabPageLimit) {
 		return domain.DeliveryMR{}, false, err
 	}
+	// 超页数上限时沿用已收集的 best/bestClosed：分支 MR 数超过一万条属于
+	// 异常数据，返回部分结果好过让 FindBranchMR 整体失败。
 	// 与 githubFindBranch 一致：优先非 closed 的 MR，仅有 closed 时返回最新 closed。
 	picked := best
 	if picked == nil {

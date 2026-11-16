@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -41,6 +42,31 @@ func (h *catalogHandlers) canManageProjectRepositories(c *gin.Context, projectID
 	}
 	c.JSON(403, gin.H{"error": "只有项目 Owner 或平台管理员可以管理项目仓库"})
 	return false
+}
+
+// isGitCloneSSHURL reports whether a clone URL uses SSH transport (SCP-like
+// git@host:path or ssh://git@host/path), as opposed to https/http(s).
+func isGitCloneSSHURL(raw string) bool {
+	low := strings.ToLower(strings.TrimSpace(domain.StripGitClonePrefix(raw)))
+	return strings.HasPrefix(low, "git@") || strings.HasPrefix(low, "ssh://") || strings.HasPrefix(low, "git://")
+}
+
+// sameGitLabRepo reports whether two canonical gitlab: refs point at the same
+// repository. Instance comparison ignores scheme and port: SSH clone URLs
+// cannot express the Web port (Self-Managed commonly serves Web on :8443 and
+// SSH on :22/:2222), so hostname + full path is the meaningful identity.
+func sameGitLabRepo(refA, refB string) bool {
+	keyA, pathA, okA := domain.ParseGitLabProjectRef(refA)
+	keyB, pathB, okB := domain.ParseGitLabProjectRef(refB)
+	if !okA || !okB || pathA != pathB {
+		return false
+	}
+	uA, errA := url.Parse(keyA)
+	uB, errB := url.Parse(keyB)
+	if errA != nil || errB != nil {
+		return keyA == keyB
+	}
+	return strings.EqualFold(uA.Hostname(), uB.Hostname())
 }
 
 func (h *catalogHandlers) repositories(c *gin.Context) {
@@ -148,10 +174,13 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			if v.WebURL == "" {
 				v.WebURL = domain.GitLabWebURL(key, path)
 			}
-			low := strings.ToLower(c)
+			// "git clone git@host:path" 是 GitLab 复制按钮的标准格式：判定 SSH
+			// 粘贴前必须先剥掉 clone 前缀，否则会被误存为 https clone URL。
+			probe := strings.TrimSpace(domain.StripGitClonePrefix(c))
+			low := strings.ToLower(probe)
 			sshPaste := strings.HasPrefix(low, "git@") || strings.HasPrefix(low, "ssh://") || strings.HasPrefix(low, "git://")
 			if sshPaste {
-				clone := strings.TrimSuffix(c, "/")
+				clone := strings.TrimSuffix(probe, "/")
 				if !strings.HasSuffix(strings.ToLower(clone), ".git") {
 					clone += ".git"
 				}
@@ -185,7 +214,7 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 		if body.RepoURL != "" && body.URL != "" {
 			_, _, r1, ok1 := domain.ParseGitLabRepoURL(strings.TrimPrefix(body.RepoURL, "gitlab+"))
 			_, _, r2, ok2 := domain.ParseGitLabRepoURL(strings.TrimPrefix(body.URL, "gitlab+"))
-			if ok1 && ok2 && r1 != r2 {
+			if ok1 && ok2 && !sameGitLabRepo(r1, r2) {
 				c.JSON(400, gin.H{"error": "repoUrl 与 url 指向不同仓库"})
 				return
 			}
@@ -200,7 +229,7 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			if extra == "" {
 				continue
 			}
-			if _, _, rExtra, okExtra := domain.ParseGitLabRepoURL(strings.TrimPrefix(extra, "gitlab+")); okExtra && rExtra != v.GongfengProjectID {
+			if _, _, rExtra, okExtra := domain.ParseGitLabRepoURL(strings.TrimPrefix(extra, "gitlab+")); okExtra && !sameGitLabRepo(rExtra, v.GongfengProjectID) {
 				c.JSON(400, gin.H{"error": "webUrl/cloneUrl 与 repoUrl 指向不同仓库"})
 				return
 			}
@@ -321,13 +350,23 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			if v.Name == "" {
 				v.Name = path[strings.LastIndex(path, "/")+1:]
 			}
-			v.ExternalRef = &domain.RepositoryExternalRef{}
-			v.ExternalRef.ProviderKind = domain.GitLabProviderKind
-			v.ExternalRef.InstanceKey = key
-			v.ExternalRef.FullPath = path
-			v.ExternalRef.APIBaseURL = key + "/api/v4"
-			v.ExternalRef.DefaultBranch = v.DefaultBranch
-			v.ExternalRef.HTTPSCloneURL = v.CloneURL
+			// 上方 gitlabMode 分支已按同一 ref 重建过 ExternalRef 时不再覆盖，
+			// 避免丢掉 SSHCloneURL；否则同样由服务端重建，HTTPSCloneURL 恒为
+			// https 派生地址，SSH clone 只进 SSHCloneURL。
+			already := v.ExternalRef != nil && v.ExternalRef.ProviderKind == domain.GitLabProviderKind &&
+				v.ExternalRef.InstanceKey == key && v.ExternalRef.FullPath == path
+			if !already {
+				v.ExternalRef = &domain.RepositoryExternalRef{}
+				v.ExternalRef.ProviderKind = domain.GitLabProviderKind
+				v.ExternalRef.InstanceKey = key
+				v.ExternalRef.FullPath = path
+				v.ExternalRef.APIBaseURL = key + "/api/v4"
+				v.ExternalRef.DefaultBranch = v.DefaultBranch
+				v.ExternalRef.HTTPSCloneURL = domain.GitLabWebURL(key, path) + ".git"
+				if isGitCloneSSHURL(v.CloneURL) {
+					v.ExternalRef.SSHCloneURL = v.CloneURL
+				}
+			}
 		}
 	}
 	if v.ProjectID == "" || v.Name == "" || v.GongfengProjectID == "" {

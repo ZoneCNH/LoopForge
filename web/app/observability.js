@@ -1372,7 +1372,7 @@ function obsDeliveryMRs(it){
   for(const mr of list){const key=mr.project&&mr.iid?`${mr.project.toLowerCase()}#${mr.iid}`:String(mr.url||'').replace(/^http:/,'https:').replace('/-/merge_requests/','/merge_requests/');if(key&&!seen.has(key))seen.set(key,mr)}
   return [...seen.values()];
 }
-function obsDeliveryMRHTML(it){return obsDeliveryMRs(it).map(mr=>`<a href="${escapeHTML(safeURL(mr.url))}" target="_blank" rel="noopener noreferrer">${escapeHTML(`${mr.project?mr.project+' ':''}!${mr.iid||''}`)}</a> · ${obsMrLabel(mr.state)}`).join('<br>')||'—'}
+function obsDeliveryMRHTML(it){return obsDeliveryMRs(it).map(mr=>`<a href="${escapeHTML(safeURL(mr.url))}" target="_blank" rel="noopener noreferrer">${escapeHTML(`${mr.project?gitlabRefDisplay(mr.project)+' ':''}!${mr.iid||''}`)}</a> · ${obsMrLabel(mr.state)}`).join('<br>')||'—'}
 function obsDeliveryMatches(it,filter){
   if(filter==='delivered')return it.delivered;
   if(filter==='sop')return it.sopSucceeded;

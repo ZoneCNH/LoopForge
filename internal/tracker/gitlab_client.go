@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -190,8 +191,13 @@ func (g *gitlabClient) listPages(projectPath, suffix string, query url.Values, v
 		}
 		page = next
 	}
-	return fmt.Errorf("gitlab list exceeded 100 pages")
+	return errGitLabPageLimit
 }
+
+// errGitLabPageLimit marks list endpoints that exceed the 100-page safety
+// bound; callers that already collected partial results may treat it as a
+// soft stop instead of a hard failure.
+var errGitLabPageLimit = errors.New("gitlab list exceeded 100 pages")
 
 // nextPage carries the X-Next-Page header of the most recent listPages call.
 // It is per-call state on a client that is not shared concurrently.

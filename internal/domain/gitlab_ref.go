@@ -12,6 +12,12 @@ import (
 // commands parse the same way the frontend does.
 var gitClonePrefix = regexp.MustCompile(`(?i)^git\s+clone\s+`)
 
+// StripGitClonePrefix removes a leading "git clone" command prefix so callers
+// can inspect the remaining repository address itself.
+func StripGitClonePrefix(s string) string {
+	return gitClonePrefix.ReplaceAllString(s, "")
+}
+
 // GitLabProviderKind is the Provider/ExternalRef kind for GitLab
 // self-managed instances.
 const GitLabProviderKind = "gitlab"
