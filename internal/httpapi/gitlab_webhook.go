@@ -2,12 +2,14 @@ package httpapi
 
 import (
 	"crypto/subtle"
+	"errors"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/tracker"
 
 	"github.com/gin-gonic/gin"
 )
@@ -85,7 +87,12 @@ func (h *gitlabWebhookHandlers) mergeRequest(c *gin.Context) {
 		return
 	}
 	if err := h.deps.sync.RefreshGitLabDelivery(h.deps.repo, ref, payload.ObjectAttributes.IID); err != nil {
-		// 返回 5xx 让 GitLab 按既定策略重试；状态写入失败不应静默吞掉。
+		// 凭据缺失/过期是确定性失败，重试无意义；返回 200 避免 GitLab 无限
+		// 重投，其余错误返回 5xx 让 GitLab 按既定策略重试。
+		if errors.Is(err, tracker.ErrProviderAuth) || errors.Is(err, tracker.ErrProviderNotFound) {
+			c.JSON(http.StatusOK, gin.H{"status": "ignored", "reason": "provider lookup failed"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "refresh failed"})
 		return
 	}

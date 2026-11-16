@@ -20,18 +20,28 @@ func gitLabMRState(state string) string {
 	}
 }
 
-// gitLabMergeStatus normalizes detailed_merge_status. Async states
-// (checking/unchecked/preparing) map to "unknown" — never mergeable —
-// so callers retry instead of merging blind.
+// gitLabMergeStatus normalizes detailed_merge_status / legacy merge_status.
+// Async and recheck states map to "unknown" — never mergeable — so callers
+// retry instead of merging blind; deterministic refusals map to "blocked".
 func gitLabMergeStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "mergeable":
+	case "mergeable", "can_be_merged":
 		return "mergeable"
-	case "checking", "unchecked", "preparing", "":
+	case "checking", "unchecked", "preparing", "cannot_be_merged_recheck", "ci_still_running", "":
 		return "unknown"
 	default:
 		return "blocked"
 	}
+}
+
+// gitLabEffectiveMergeStatus prefers detailed_merge_status (GitLab ≥15.6)
+// and falls back to the legacy merge_status field on older instances that do
+// not return the detailed value at all.
+func gitLabEffectiveMergeStatus(mr gitlabMergeRequest) string {
+	if detailed := strings.TrimSpace(mr.DetailedMergeStatus); detailed != "" {
+		return gitLabMergeStatus(detailed)
+	}
+	return gitLabMergeStatus(mr.MergeStatus)
 }
 
 // gitLabPipelineState normalizes a pipeline status.
@@ -72,7 +82,7 @@ func gitLabMRSnapshot(mr gitlabMergeRequest, checkedAt time.Time) MRStateSnapsho
 		State:        gitLabMRState(mr.State),
 		RawState:     strings.ToLower(strings.TrimSpace(mr.State)),
 		TargetBranch: strings.TrimSpace(mr.TargetBranch),
-		MergeStatus:  gitLabMergeStatus(mr.DetailedMergeStatus),
+		MergeStatus:  gitLabEffectiveMergeStatus(mr),
 		CheckedAt:    checkedAt.UTC(),
 	}
 	if mr.MergedAt != nil {

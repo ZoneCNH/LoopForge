@@ -72,6 +72,7 @@ type providerTokenStore interface {
 // projectProviderKind classifies a GongfengProjectID identity string.
 // It only looks at the prefix; payload validation stays with the provider.
 func projectProviderKind(project string) string {
+	project = strings.TrimSpace(project)
 	switch {
 	case strings.HasPrefix(project, "github:"):
 		return ProviderGitHub

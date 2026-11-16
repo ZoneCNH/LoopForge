@@ -182,7 +182,7 @@ type ExternalRef struct {
 	// SourceContentHash records the last imported body so provider adapters can
 	// distinguish a remote edit from a locally clarified requirement.
 	SourceContentHash string    `json:"sourceContentHash,omitempty"`
-	Source            string    `json:"source"`        // gongfeng, tapd
+	Source            string    `json:"source"`        // gongfeng, tapd, github, gitlab
 	ExternalID        string    `json:"externalId"`    // gongfeng issue id or tapd story id
 	ExternalIID       int       `json:"externalIid"`   // gongfeng issue iid (for URL)
 	ExternalURL       string    `json:"externalUrl"`   // clickable URL
@@ -216,7 +216,7 @@ func (i Issue) ManuallyClosed() bool {
 // TrackerClosed reads the tracker's raw state so a lagging local status cannot
 // make an externally closed work item executable.
 func (i Issue) TrackerClosed() bool {
-	if i.ExternalRef == nil || (i.Source != "gongfeng" && i.Source != "tapd" && i.Source != "github") {
+	if i.ExternalRef == nil || (i.Source != "gongfeng" && i.Source != "tapd" && i.Source != "github" && i.Source != "gitlab") {
 		return false
 	}
 	state := strings.ToLower(strings.TrimSpace(i.ExternalRef.ExternalState))

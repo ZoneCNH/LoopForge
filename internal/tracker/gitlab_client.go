@@ -123,25 +123,37 @@ func (g *gitlabClient) request(method, projectPath, suffix string, query url.Val
 		return fmt.Errorf("%w: %v", ErrProviderUnavailable, err)
 	}
 	defer res.Body.Close()
-	switch {
-	case res.StatusCode == http.StatusUnauthorized:
-		return ErrProviderAuth
-	case res.StatusCode == http.StatusForbidden:
-		return ErrProviderDenied
-	case res.StatusCode == http.StatusNotFound:
-		return ErrProviderNotFound
-	case res.StatusCode == http.StatusConflict:
-		return ErrProviderConflict
-	case res.StatusCode == http.StatusTooManyRequests:
-		return ErrProviderRateLimited
-	case res.StatusCode < 200 || res.StatusCode >= 300:
-		return fmt.Errorf("%w: HTTP %d", ErrProviderUnavailable, res.StatusCode)
+	if err := classifyGitLabStatus(res.StatusCode); err != nil {
+		return err
 	}
 	if output == nil {
 		_, err = io.Copy(io.Discard, io.LimitReader(res.Body, 4<<20))
 		return err
 	}
 	return json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(output)
+}
+
+// classifyGitLabStatus maps an HTTP status onto the provider sentinels.
+// 405/406 on merge endpoints mean "not mergeable right now" (SHA mismatch,
+// async recheck), which is retryable conflict semantics rather than a
+// service outage.
+func classifyGitLabStatus(code int) error {
+	switch code {
+	case http.StatusUnauthorized:
+		return ErrProviderAuth
+	case http.StatusForbidden:
+		return ErrProviderDenied
+	case http.StatusNotFound:
+		return ErrProviderNotFound
+	case http.StatusConflict, http.StatusMethodNotAllowed, http.StatusNotAcceptable:
+		return ErrProviderConflict
+	case http.StatusTooManyRequests:
+		return ErrProviderRateLimited
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("%w: HTTP %d", ErrProviderUnavailable, code)
+	}
+	return nil
 }
 
 // listPages iterates pages of a list endpoint. visit is called once per
@@ -201,17 +213,8 @@ func (g *gitlabClient) requestRaw(projectPath, suffix string, query url.Values, 
 		return fmt.Errorf("%w: %v", ErrProviderUnavailable, err)
 	}
 	defer res.Body.Close()
-	switch {
-	case res.StatusCode == http.StatusUnauthorized:
-		return ErrProviderAuth
-	case res.StatusCode == http.StatusForbidden:
-		return ErrProviderDenied
-	case res.StatusCode == http.StatusNotFound:
-		return ErrProviderNotFound
-	case res.StatusCode == http.StatusTooManyRequests:
-		return ErrProviderRateLimited
-	case res.StatusCode < 200 || res.StatusCode >= 300:
-		return fmt.Errorf("%w: HTTP %d", ErrProviderUnavailable, res.StatusCode)
+	if err := classifyGitLabStatus(res.StatusCode); err != nil {
+		return err
 	}
 	g.nextPage = res.Header.Get("X-Next-Page")
 	body, err := io.ReadAll(io.LimitReader(res.Body, 16<<20))

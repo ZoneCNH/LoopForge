@@ -87,19 +87,22 @@ func (r *UsersRepo) SaveProviderToken(userID int64, providerKind, instanceKey, c
 	}
 	id := providerTokenID(kind, instance)
 	now := time.Now().UTC()
+	name := kind + " " + instance
+	if runes := []rune(name); len(runes) > 80 {
+		name = string(runes[:80])
+	}
 	row := providerTokenRow{
 		UserID: userID, ID: id, ProviderKind: kind, InstanceKey: instance,
-		Name: kind + " " + instance, CredentialType: credentialType, Token: token,
+		Name: name, CredentialType: credentialType, Token: token,
 		TokenHint: tokenHint(token), ScopesSummary: strings.TrimSpace(scopesSummary),
 		ExpiresAt: expiresAt, Status: domain.ProviderTokenActive,
 		CreatedAt: now, UpdatedAt: now,
 	}
-	// Preserve created_at on update and keep a prior auth_failed status until
-	// the next validation run proves the new token works.
+	// Preserve created_at on update; a replaced token starts active again and
+	// the next validation run flips it to auth_failed if it still does not work.
 	var existing providerTokenRow
-	if err := r.DB.Select("created_at", "status").Where("user_id = ? AND id = ?", userID, id).Take(&existing).Error; err == nil {
+	if err := r.DB.Select("created_at").Where("user_id = ? AND id = ?", userID, id).Take(&existing).Error; err == nil {
 		row.CreatedAt = existing.CreatedAt
-		row.Status = existing.Status
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return domain.ProviderToken{}, err
 	}

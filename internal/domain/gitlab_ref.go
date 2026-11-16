@@ -4,9 +4,14 @@ import (
 	"encoding/json"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// gitClonePrefix matches a leading "git clone" (any case/spacing) so pasted
+// commands parse the same way the frontend does.
+var gitClonePrefix = regexp.MustCompile(`(?i)^git\s+clone\s+`)
 
 // GitLabProviderKind is the Provider/ExternalRef kind for GitLab
 // self-managed instances.
@@ -136,7 +141,7 @@ func GitLabWebURL(instanceKey, fullPath string) string {
 // Paths with ".." segments or empty groups are rejected.
 func ParseGitLabRepoURL(raw string) (instanceKey, fullPath, projectRef string, ok bool) {
 	s := strings.TrimSpace(raw)
-	s = strings.TrimPrefix(s, "git clone ")
+	s = gitClonePrefix.ReplaceAllString(s, "")
 	s = strings.TrimPrefix(s, "gitlab+")
 	s = strings.Trim(s, "\"'")
 	if s == "" {

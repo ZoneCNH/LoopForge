@@ -203,7 +203,7 @@ func (s *Service) gitlabMergeBranch(project, sourceBranch, targetBranch, title, 
 	case "closed":
 		return "", fmt.Errorf("GitLab MR !%d is closed", mr.IID)
 	}
-	switch gitLabMergeStatus(mr.DetailedMergeStatus) {
+	switch gitLabEffectiveMergeStatus(*mr) {
 	case "mergeable":
 	case "unknown":
 		return "", fmt.Errorf("%w: merge request !%d merge status is %q", ErrProviderConflict, mr.IID, mr.DetailedMergeStatus)

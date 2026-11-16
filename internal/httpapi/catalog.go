@@ -168,9 +168,9 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			if v.DefaultBranch == "" {
 				v.DefaultBranch = "main"
 			}
-			if v.ExternalRef == nil {
-				v.ExternalRef = &domain.RepositoryExternalRef{}
-			}
+			// ExternalRef 完全由服务端从规范化 ref 重建，忽略客户端提交的
+			// externalRef，防止写入与 GongfengProjectID 不一致的外部身份。
+			v.ExternalRef = &domain.RepositoryExternalRef{}
 			v.ExternalRef.ProviderKind = domain.GitLabProviderKind
 			v.ExternalRef.InstanceKey = key
 			v.ExternalRef.FullPath = path
@@ -310,9 +310,7 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			if v.Name == "" {
 				v.Name = path[strings.LastIndex(path, "/")+1:]
 			}
-			if v.ExternalRef == nil {
-				v.ExternalRef = &domain.RepositoryExternalRef{}
-			}
+			v.ExternalRef = &domain.RepositoryExternalRef{}
 			v.ExternalRef.ProviderKind = domain.GitLabProviderKind
 			v.ExternalRef.InstanceKey = key
 			v.ExternalRef.FullPath = path
@@ -343,6 +341,10 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 	if v.Provider != "gongfeng" && v.Provider != "github" && v.Provider != "gitlab" {
 		c.JSON(400, map[string]string{"error": "provider must be github, gitlab or gongfeng"})
 		return
+	}
+	// ExternalRef 目前仅 GitLab 使用；非 gitlab 仓库丢弃客户端提交的残留身份。
+	if v.Provider != "gitlab" {
+		v.ExternalRef = nil
 	}
 	if v.DefaultBranch == "" {
 		v.DefaultBranch = "master"

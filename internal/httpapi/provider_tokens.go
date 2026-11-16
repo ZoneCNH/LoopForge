@@ -104,6 +104,10 @@ func (h *usersHandlers) validateProviderToken(c *gin.Context) {
 		c.JSON(http.StatusForbidden, providerTokenValidateResult{Error: "只能校验当前登录用户的凭据"})
 		return
 	}
+	if h.repo == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储不可用"})
+		return
+	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8<<10)
 	var input struct {
 		ProviderKind string `json:"providerKind"`
