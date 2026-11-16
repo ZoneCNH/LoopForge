@@ -1,9 +1,13 @@
 package tracker
 
 import (
+	"errors"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"agentflow/internal/domain"
 	"agentflow/internal/repo"
@@ -120,4 +124,127 @@ func TestGitLabLiveSmoke(t *testing.T) {
 		t.Fatalf("pullGitLabIssues: %v", err)
 	}
 	t.Logf("pullGitLabIssues imported %d issues", imported)
+}
+
+// TestGitLabLiveMRMerge creates a real branch + commit + MR on the configured
+// Self-Managed project, merges it through EnsureAndMergeBranchMR, verifies the
+// merged delivery state, then deletes the source branch. Env-gated:
+//
+//	AGENTFLOW_GITLAB_LIVE_INSTANCE / _TOKEN / _PROJECT (same as smoke test)
+//	AGENTFLOW_GITLAB_LIVE_TARGET=main (optional, defaults to repository default)
+//	AGENTFLOW_GITLAB_LIVE_MERGE=1 (required opt-in: performs real writes)
+func TestGitLabLiveMRMerge(t *testing.T) {
+	if os.Getenv("AGENTFLOW_GITLAB_LIVE_MERGE") != "1" {
+		t.Skip("set AGENTFLOW_GITLAB_LIVE_MERGE=1 to run the real MR merge scenario")
+	}
+	instance := os.Getenv("AGENTFLOW_GITLAB_LIVE_INSTANCE")
+	token := os.Getenv("AGENTFLOW_GITLAB_LIVE_TOKEN")
+	fullPath := os.Getenv("AGENTFLOW_GITLAB_LIVE_PROJECT")
+	if instance == "" || token == "" || fullPath == "" {
+		t.Skip("GitLab live MR merge requires AGENTFLOW_GITLAB_LIVE_INSTANCE/TOKEN/PROJECT")
+	}
+	key := domain.NormalizeGitLabInstanceKey(instance)
+	if key == "" {
+		t.Fatalf("invalid instance %q", instance)
+	}
+	_, _, ref, ok := domain.ParseGitLabRepoURL(key + "/" + fullPath)
+	if !ok {
+		t.Fatalf("invalid project %q", fullPath)
+	}
+
+	st, err := repo.OpenTest()
+	if err != nil {
+		t.Fatalf("OpenTest: %v", err)
+	}
+	defer st.Close()
+	if _, err := st.SaveProviderToken(1, ProviderGitLab, key, domain.ProviderCredentialPAT, token, "", nil); err != nil {
+		t.Fatalf("SaveProviderToken: %v", err)
+	}
+	target := strings.TrimSpace(os.Getenv("AGENTFLOW_GITLAB_LIVE_TARGET"))
+	if target == "" {
+		target = "main"
+	}
+	if err := st.PutRepository(domain.Repository{
+		ID: "live-gitlab-mr-repo", ProjectID: "platform", Provider: ProviderGitLab, Name: "live-mr",
+		GongfengProjectID: ref, WebURL: domain.GitLabWebURL(key, fullPath),
+		CloneURL: domain.GitLabWebURL(key, fullPath) + ".git", DefaultBranch: target,
+	}); err != nil {
+		t.Fatalf("PutRepository: %v", err)
+	}
+
+	svc := NewService()
+	svc.ConfigureWithStore(domain.SyncConfig{}, st)
+	client, extRef, err := svc.gitlabClientForProject(ref)
+	if err != nil {
+		t.Fatalf("gitlabClientForProject: %v", err)
+	}
+
+	branch := "agentflow-e2e-mr-" + strconv.FormatInt(time.Now().Unix(), 10)
+	// 建分支 → 提交文件 → EnsureAndMergeBranchMR 创建并合并 MR → 校验 → 删分支。
+	if err := client.request("POST", extRef.FullPath, "/repository/branches",
+		url.Values{"branch": {branch}, "ref": {target}}, nil, nil); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+	defer func() {
+		_ = client.request("DELETE", extRef.FullPath, "/repository/branches/"+url.PathEscape(branch), nil, nil, nil)
+	}()
+	// commit-msg CI job enforces `type(scope): subject` on commit AND MR title.
+	commit := map[string]any{
+		"branch":         branch,
+		"commit_message": "chore(e2e): agentflow mr merge check",
+		"actions":        []map[string]any{{"action": "create", "file_path": "agentflow-e2e/mr-merge-check.txt", "content": "e2e\n"}},
+	}
+	if err := client.request("POST", extRef.FullPath, "/repository/commits", nil, commit, nil); err != nil {
+		t.Fatalf("create commit: %v", err)
+	}
+
+	// GitLab computes mergeability asynchronously and the project enforces
+	// pipeline success; both surface as retryable ErrProviderConflict, so poll
+	// until the MR becomes mergeable (pipelines on this project take minutes).
+	var mergedRef string
+	for attempt := 0; attempt < 240; attempt++ {
+		mergedRef, err = svc.EnsureAndMergeBranchMR(ref, branch, target, "chore(e2e): agentflow mr merge", "automated live test")
+		if !errors.Is(err, ErrProviderConflict) {
+			break
+		}
+		t.Logf("merge attempt %d: conflict (mergeability/pipeline pending), retrying", attempt+1)
+		time.Sleep(15 * time.Second)
+	}
+	if err != nil {
+		t.Fatalf("EnsureAndMergeBranchMR: %v", err)
+	}
+	t.Logf("EnsureAndMergeBranchMR returned %s", mergedRef)
+
+	mr, found, err := svc.FindBranchMR(ref, branch)
+	if err != nil {
+		t.Fatalf("FindBranchMR after merge: %v", err)
+	}
+	if !found {
+		t.Fatal("merged MR not found by source branch")
+	}
+	if mr.State != "merged" {
+		t.Fatalf("MR !%d state = %q, want merged", mr.IID, mr.State)
+	}
+	t.Logf("merged MR !%d url=%s", mr.IID, mr.URL)
+
+	if err := st.EnsureMRDeliveryState(ref, mr.IID, mr.URL, "live-mr-issue"); err != nil {
+		t.Fatalf("EnsureMRDeliveryState: %v", err)
+	}
+	if err := svc.RefreshGitLabDelivery(st, ref, mr.IID); err != nil {
+		t.Fatalf("RefreshGitLabDelivery: %v", err)
+	}
+	rows, err := st.ListMRDeliveryStates()
+	if err != nil {
+		t.Fatalf("ListMRDeliveryStates: %v", err)
+	}
+	for _, row := range rows {
+		if row.MRProject == ref && row.MRIID == mr.IID {
+			t.Logf("delivery state: %s target=%s", row.State, row.TargetBranch)
+			if row.State != "merged" {
+				t.Fatalf("delivery state = %q, want merged", row.State)
+			}
+			return
+		}
+	}
+	t.Fatal("delivery row for merged MR not found")
 }
