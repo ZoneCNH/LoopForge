@@ -75,13 +75,16 @@ import (
 //	g.GET("/runners/tasks/:id/control", h.runnerTaskControl)
 
 const (
-	runnerLongPollDefault    = 30 * time.Second
-	runnerDBPollDefault      = time.Second
-	runnerOfflineThreshold   = 90 * time.Second
-	runnerTaskLeaseTTL       = 120 * time.Second
-	runnerSweepInterval      = 15 * time.Second
-	runnerSessionTokenPrefix = "afr_"
-	runnerSessionTTL         = 30 * 24 * time.Hour
+	runnerLongPollDefault  = 30 * time.Second
+	runnerDBPollDefault    = time.Second
+	runnerOfflineThreshold = 90 * time.Second
+	runnerTaskLeaseTTL     = 120 * time.Second
+	runnerSweepInterval    = 15 * time.Second
+	// A single node may legitimately run for tens of minutes (review/test),
+	// but never for an hour: agent nodes observed so far finish well inside it.
+	defaultRunnerTaskDeadline = 60 * time.Minute
+	runnerSessionTokenPrefix  = "afr_"
+	runnerSessionTTL          = 30 * 24 * time.Hour
 )
 
 type runnersHandlers struct {
@@ -169,8 +172,25 @@ func (h *runnersHandlers) startRunnerSweeper() {
 			for _, task := range recovered {
 				h.engine.NotifyRunnerTaskChanged(task.ID)
 			}
+			for _, task := range h.repo.OverdueRunnerTasks(runnerTaskDeadline(), now) {
+				if err := h.repo.CancelRunnerTask(task.ID, now); err != nil {
+					continue
+				}
+				h.engine.NotifyRunnerTaskChanged(task.ID)
+			}
 		}
 	}()
+}
+
+// runnerTaskDeadline bounds one runner task's wall clock. The lease alone never
+// ends a wedged CLI: it answers lease renewals while its command hangs.
+func runnerTaskDeadline() time.Duration {
+	if raw := strings.TrimSpace(os.Getenv("AGENTFLOW_RUNNER_TASK_DEADLINE")); raw != "" {
+		if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return defaultRunnerTaskDeadline
 }
 
 // ---------- authentication ----------

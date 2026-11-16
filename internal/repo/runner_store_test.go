@@ -343,3 +343,35 @@ func TestRunnerSessionLookup(t *testing.T) {
 		t.Fatal("expired session resolved")
 	}
 }
+
+// A wedged CLI keeps renewing its lease, so only the wall clock can end it.
+func TestOverdueRunnerTasksFindsWedgedTask(t *testing.T) {
+	s := newTestRunner(t)
+	putQueuedTask(t, s, "rt-wedged", "pi", "runner-a", 0)
+	now := time.Now().UTC()
+	task, claimed, err := s.ClaimRunnerTask("runner-a", []string{"pi"}, now, 2*time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim: claimed=%v err=%v", claimed, err)
+	}
+	if err := s.StartRunnerTask(task.ID, "runner-a", now); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OverdueRunnerTasks(time.Hour, now.Add(10*time.Minute)); len(got) != 0 {
+		t.Fatalf("fresh task reported overdue: %v", got)
+	}
+	if err := s.DB.Exec("UPDATE runner_tasks SET created_at = ? WHERE id = ?", now.Add(-2*time.Hour), "rt-wedged").Error; err != nil {
+		t.Fatal(err)
+	}
+	got := s.OverdueRunnerTasks(time.Hour, now)
+	if len(got) != 1 || got[0].ID != "rt-wedged" {
+		t.Fatalf("overdue = %v", got)
+	}
+	if err := s.CancelRunnerTask(task.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.OverdueRunnerTasks(time.Hour, now)) != 0 {
+		t.Fatal("already canceled task reported overdue, cancel would repeat")
+	}
+}
+
+// A wedged CLI keeps renewing its lease, so only the wall clock can end it.
