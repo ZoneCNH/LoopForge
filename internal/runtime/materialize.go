@@ -448,7 +448,11 @@ func mcpConfigEntries(servers []domain.MCPServerDefinition) (map[string]any, err
 			}
 		} else {
 			entry["command"] = m.Command
-			entry["args"] = m.Args
+			// A nil slice must not become "args": null; pi rejects the whole
+			// mcp.json entry (args must be an array of strings).
+			if len(m.Args) > 0 {
+				entry["args"] = m.Args
+			}
 			if cwd := MCPRuntimeWorkingDirectory(m); cwd != "" {
 				entry["cwd"] = cwd
 			}
