@@ -104,14 +104,24 @@ func IsHYModel(model string) bool {
 	return model == "hy" || strings.HasPrefix(model, "hy-") || strings.HasPrefix(model, "hy.") || hyVersionedModel.MatchString(model) || strings.HasPrefix(model, "hunyuan")
 }
 
+// IsPlanQuotaModel reports gateway routing groups (group/… and auto/…). Such a
+// request is served from a plan quota, not pay-as-you-go: magpie usage.jsonl
+// attributes every one of them to a plan account (workbuddy, opencode-go) and
+// balance-history.json records no money movement, so their cost is zero rather
+// than an invented list price. Recheck when a plan starts billing per token.
+func IsPlanQuotaModel(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(model, "group/") || strings.HasPrefix(model, "auto/")
+}
+
 // AnalyticsPricedUsage never mutates stored billing facts. CostUSD in the
 // projection is a USD equivalent of the CNY statistic for legacy consumers.
 // Inclusive input (Codex/external API) includes caches; Anthropic input excludes them.
 func AnalyticsPricedUsage(model string, usage TokenUsage, inclusiveInput bool) TokenUsage {
 	out := usage
 	out.CostUSD, out.CostStatus = 0, "unknown"
-	if IsHYModel(model) {
-		// Hy / Hunyuan models are free on the platform; adapter amounts are ignored.
+	if IsHYModel(model) || IsPlanQuotaModel(model) {
+		// Hy / Hunyuan and plan-quota routing groups are free; adapter amounts are ignored.
 		out.CostUSD, out.CostStatus = 0, "estimated"
 		return out
 	}
