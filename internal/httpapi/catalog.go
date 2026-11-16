@@ -964,8 +964,11 @@ func (h *catalogHandlers) dockerfiles(c *gin.Context) {
 		var v domain.DockerfileDefinition
 		if decode(c, &v) {
 			v.ID, v.ProjectID = strings.TrimSpace(v.ID), strings.TrimSpace(v.ProjectID)
-			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, "Dockerfile"); err != nil {
+			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, v.Shared, "Dockerfile"); err != nil {
 				respond(c, err)
+				return
+			}
+			if !h.requireSharedAssetWriter(c, v.Shared) {
 				return
 			}
 			if existing, ok := h.repo.Dockerfile(v.ID); ok && existing.ProjectID != "" && existing.ProjectID != v.ProjectID {
@@ -999,8 +1002,11 @@ func (h *catalogHandlers) environments(c *gin.Context) {
 		var v domain.EnvironmentDefinition
 		if decode(c, &v) {
 			v.ID, v.ProjectID = strings.TrimSpace(v.ID), strings.TrimSpace(v.ProjectID)
-			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, "环境安装脚本"); err != nil {
+			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, v.Shared, "环境安装脚本"); err != nil {
 				respond(c, err)
+				return
+			}
+			if !h.requireSharedAssetWriter(c, v.Shared) {
 				return
 			}
 			if existing, ok := h.repo.Environment(v.ID); ok && existing.ProjectID != "" && existing.ProjectID != v.ProjectID {
@@ -1034,8 +1040,11 @@ func (h *catalogHandlers) sandboxes(c *gin.Context) {
 		var v domain.SandboxProfile
 		if decode(c, &v) {
 			v.ID, v.ProjectID = strings.TrimSpace(v.ID), strings.TrimSpace(v.ProjectID)
-			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, "沙箱"); err != nil {
+			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, v.Shared, "沙箱"); err != nil {
 				respond(c, err)
+				return
+			}
+			if !h.requireSharedAssetWriter(c, v.Shared) {
 				return
 			}
 			if existing, ok := h.repo.Sandbox(v.ID); ok && existing.ProjectID != "" && existing.ProjectID != v.ProjectID {
@@ -1078,14 +1087,35 @@ func filterOwnedByProject[T any](items []T, projectID string, owner func(T) stri
 	return out
 }
 
-func (h *catalogHandlers) validateEnvironmentAsset(id, name, projectID, kind string) error {
-	if id == "" || strings.TrimSpace(name) == "" || projectID == "" {
+// A shared asset belongs to no project (that is how the seeded platform image
+// and sandbox work), so projectId is optional when shared is set.
+func (h *catalogHandlers) validateEnvironmentAsset(id, name, projectID string, shared bool, kind string) error {
+	if id == "" || strings.TrimSpace(name) == "" || (projectID == "" && !shared) {
 		return fmt.Errorf("%s 需要 id、name 和 projectId", kind)
+	}
+	if projectID == "" {
+		return nil
 	}
 	if _, ok := h.repo.Project(projectID); !ok {
 		return fmt.Errorf("项目不存在")
 	}
 	return nil
+}
+
+// A shared asset runs in every project's sandbox, so rewriting it is a platform
+// administrator action. Service tokens carry no user identity and keep working.
+func (h *catalogHandlers) requireSharedAssetWriter(c *gin.Context, shared bool) bool {
+	if !shared || !authRequired() {
+		return true
+	}
+	if _, ok := h.deps.requestUser(c.Request, true); !ok {
+		return true
+	}
+	if h.deps.isPlatformAdmin(c.Request) {
+		return true
+	}
+	c.JSON(http.StatusForbidden, map[string]string{"error": "共享环境资产只有平台管理员可以修改"})
+	return false
 }
 
 func (h *catalogHandlers) sharedEnvironmentReference(kind, id string) bool {

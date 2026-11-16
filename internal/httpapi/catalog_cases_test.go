@@ -257,13 +257,19 @@ func TestCatalogDirectEnvironmentBranches(t *testing.T) {
 		}
 	}
 	h := &catalogHandlers{deps: &deps{repo: f.s}}
-	if err := h.validateEnvironmentAsset("", "name", "cvb-env-a", "asset"); err == nil {
+	if err := h.validateEnvironmentAsset("", "name", "cvb-env-a", false, "asset"); err == nil {
 		t.Fatal("missing id accepted")
 	}
-	if err := h.validateEnvironmentAsset("id", "name", "missing", "asset"); err == nil {
+	if err := h.validateEnvironmentAsset("id", "name", "missing", false, "asset"); err == nil {
 		t.Fatal("missing project accepted")
 	}
-	if err := h.validateEnvironmentAsset("id", "name", "cvb-env-a", "asset"); err != nil {
+	if err := h.validateEnvironmentAsset("id", "name", "", false, "asset"); err == nil {
+		t.Fatal("projectless non-shared asset accepted")
+	}
+	if err := h.validateEnvironmentAsset("id", "name", "", true, "asset"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.validateEnvironmentAsset("id", "name", "cvb-env-a", false, "asset"); err != nil {
 		t.Fatal(err)
 	}
 
