@@ -56,8 +56,8 @@
 | I2 | `pullGitHubIssues` → `pullProviderIssues` 重构 | GitHub issue 导入结果不变（`gh-<repo>-<n>` ID、SourceContentHash、CloseSource） |
 | I3 | `syncMRDeliveryStates` gitlab 分支 | fake gitlab client 刷新 `mr_delivery_states`；stale/终态/unknown 行为正确 |
 | I4 | `user_provider_tokens` CRUD | 唯一约束 `(user_id, kind, instance_key)`；API 输出无 secret |
-| I5 | `repositories.external_ref_json` | 写入/读取/回退解析 `GongfengProjectID` |
-| I6 | webhook 端点（若 v1 启用） | 正确 token + 合法事件 → 200 且状态更新；错误 token → 401；重复 event_uuid → 幂等 |
+| I5 | `Repository.ExternalRef`（payload JSON） | 写入/读取/回退解析 `GongfengProjectID`；catalog 重建不信任客户端值 |
+| I6 | webhook 端点（v1 已实装） | 正确 token + 合法事件 → 200 且状态更新；错误 token → 401；重复投递幂等（权威回读，无需 event_uuid 去重） |
 
 ## 5. 真实 E2E 清单（G8 必过）
 

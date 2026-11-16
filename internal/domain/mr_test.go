@@ -49,6 +49,34 @@ func TestParseGongfengMRsKeepsOrderAndDedups(t *testing.T) {
 	}
 }
 
+func TestParseGongfengMRsParsesGitLabMRLinks(t *testing.T) {
+	text := "见 https://gitlab.example.com/group/sub/repo/-/merge_requests/42 与 https://git.example.com/org/repo/merge_requests/7"
+	refs := ParseGongfengMRs(text)
+	if len(refs) != 2 {
+		t.Fatalf("refs=%+v", refs)
+	}
+	if refs[0].IID != 42 || !IsGitLabProjectRef(refs[0].Project) {
+		t.Fatalf("gitlab ref=%+v", refs[0])
+	}
+	if refs[0].URL != "https://gitlab.example.com/group/sub/repo/-/merge_requests/42" {
+		t.Fatalf("gitlab url=%q", refs[0].URL)
+	}
+	if refs[1].IID != 7 || refs[1].Project != "org/repo" {
+		t.Fatalf("gongfeng ref=%+v", refs[1])
+	}
+	// github.com 与 git.example.com 上的 /-/ 形式不做 GitLab 归类。
+	for _, u := range []string{
+		"https://github.com/o/r/-/merge_requests/9",
+		"https://git.example.com/o/r/-/merge_requests/9",
+	} {
+		for _, ref := range ParseGongfengMRs(u) {
+			if IsGitLabProjectRef(ref.Project) {
+				t.Fatalf("%s must not produce gitlab ref: %+v", u, ref)
+			}
+		}
+	}
+}
+
 func TestMRArtifactPriorityIgnoresPatches(t *testing.T) {
 	if got := MRArtifactPriority("repository-patch", "", "mr"); got != 0 {
 		t.Fatalf("patch priority=%d", got)

@@ -459,7 +459,7 @@ function obsFilterBar(){
     ...people.map(u=>{const id=String(u.id);return `<option value="${escapeHTML(id)}"${id===String(selected)?' selected':''} data-search="${escapeHTML(`${u.loginName||''} ${u.chineseName||''}`)}"${id===me?' data-meta="我"':''}>${escapeHTML(userDisplay(u))}</option>`})];
   if(selected&&!people.some(u=>String(u.id)===String(selected)))userOptions.push(`<option value="${escapeHTML(String(selected))}" selected>${escapeHTML(label)}</option>`);
   const originChoices=[['','全部执行'],['internal','平台内'],['external','外部工作流']];
-  const sourceChoices=[['','全部来源'],['local','本地'],['github','GitHub']];
+  const sourceChoices=[['','全部来源'],['local','本地'],['github','GitHub'],['gitlab','GitLab'],['gongfeng','工蜂'],['tapd','TAPD']];
   const sources=sourceChoices.map(([v,l])=>`<option value="${v}" ${(state.obsSourceFilter||'')===v?'selected':''}>${l}</option>`).join('');
   const grain=obsTrendGrain();
   const hint=scope==='project'
@@ -1027,7 +1027,7 @@ function obsCountUp(el){
   };
   requestAnimationFrame(step);
 }
-function obsSourceLabel(s){return s==='gongfeng'?'工蜂':s==='tapd'?'TAPD':s==='local'?'本地':s==='github'?'GitHub':s||'—'}
+function obsSourceLabel(s){return s==='gongfeng'?'工蜂':s==='tapd'?'TAPD':s==='local'?'本地':s==='github'?'GitHub':s==='gitlab'?'GitLab':s||'—'}
 function obsCategoryLabel(k){return ({requirement:'需求开发',bugfix:'Bug 修复',refactor:'技术优化',other:'其他'}[k])||k||'未分类'}
 function obsTraceLabel(t){return [t.origin==='external'?'外部 · '+t.workflowName:obsSourceLabel(t.issueSource||'local'),t.externalId||t.issueId||t.runId].filter(Boolean).join(' ')}
 function obsOverview(){
@@ -1372,7 +1372,7 @@ function obsDeliveryMRs(it){
   for(const mr of list){const key=mr.project&&mr.iid?`${mr.project.toLowerCase()}#${mr.iid}`:String(mr.url||'').replace(/^http:/,'https:').replace('/-/merge_requests/','/merge_requests/');if(key&&!seen.has(key))seen.set(key,mr)}
   return [...seen.values()];
 }
-function obsDeliveryMRHTML(it){return obsDeliveryMRs(it).map(mr=>`<a href="${escapeHTML(safeURL(mr.url))}" target="_blank" rel="noopener noreferrer">${escapeHTML(`${mr.project?mr.project+' ':''}!${mr.iid||''}`)}</a> · ${obsMrLabel(mr.state)}`).join('<br>')||'—'}
+function obsDeliveryMRHTML(it){return obsDeliveryMRs(it).map(mr=>`<a href="${escapeHTML(safeURL(mr.url))}" target="_blank" rel="noopener noreferrer">${escapeHTML(`${mr.project?gitlabRefDisplay(mr.project)+' ':''}!${mr.iid||''}`)}</a> · ${obsMrLabel(mr.state)}`).join('<br>')||'—'}
 function obsDeliveryMatches(it,filter){
   if(filter==='delivered')return it.delivered;
   if(filter==='sop')return it.sopSucceeded;
@@ -1381,7 +1381,7 @@ function obsDeliveryMatches(it,filter){
   if(filter==='withmr')return obsDeliveryMRs(it).length>0;
   if(filter==='mr')return obsDeliveryMRs(it).some(mr=>mr.state==='merged');
   if(filter==='baseline')return obsDeliveryMRs(it).some(mr=>mr.state==='integrated');
-  if(filter==='github'||filter==='local'||filter==='gongfeng'||filter==='tapd')return (it.source||'local')===filter;
+  if(filter==='github'||filter==='local'||filter==='gongfeng'||filter==='tapd'||filter==='gitlab')return (it.source||'local')===filter;
   if(filter&&filter.startsWith('user:'))return String(it.userId||'unassigned')===filter.slice(5);
   return true;
 }

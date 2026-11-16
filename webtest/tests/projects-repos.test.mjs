@@ -120,6 +120,37 @@ test('repository drawer detects Git SSH URLs and persists a default repository',
   assert.ok(app.router.calls.some(c => c.method === 'DELETE' && c.path === '/api/repositories'));
 });
 
+test('repository URL parsing recognizes GitLab Self-Managed forms', async (t) => {
+  const app = await loadApp();
+  t.after(app.close);
+  const values = app.evaluate(`({
+    https: parseGongfengRepoURL('https://git.xhyperium.com/xhyperium/workspace'),
+    httpsSub: parseGongfengRepoURL('https://git.xhyperium.com/xhyperium/workspace/-/merge_requests/36'),
+    clone: parseGongfengRepoURL('git clone https://git.xhyperium.com/xhyperium/workspace.git'),
+    sshPaste: parseGongfengRepoURL('git@git.xhyperium.com:xhyperium/workspace.git'),
+    prefixed: parseGongfengRepoURL('gitlab+https://git.xhyperium.com/xhyperium/workspace'),
+    ref: parseGongfengRepoURL('gitlab:https%3A%2F%2Fgit.xhyperium.com/xhyperium%2Fworkspace'),
+    github: parseGongfengRepoURL('https://github.com/owner/repo'),
+    legacy: parseGongfengRepoURL('https://git.example.com/group/repo'),
+    nested: parseGongfengRepoURL('https://gitlab.example.com/group/sub/repo')
+  })`);
+  for (const [key, info] of Object.entries(values)) {
+    assert.ok(info, key + ' must parse');
+  }
+  assert.equal(values.https.provider, 'gitlab');
+  assert.equal(values.https.project, 'gitlab:https%3A%2F%2Fgit.xhyperium.com/xhyperium%2Fworkspace');
+  assert.equal(values.https.name, 'workspace');
+  assert.equal(values.httpsSub.project, values.https.project);
+  assert.equal(values.clone.project, values.https.project);
+  assert.equal(values.sshPaste.provider, 'ssh');
+  assert.equal(values.prefixed.project, values.https.project);
+  assert.equal(values.ref.project, values.https.project);
+  assert.equal(values.github.provider, 'github');
+  assert.equal(values.legacy.provider, undefined);
+  assert.equal(values.legacy.project, 'group/repo');
+  assert.equal(values.nested.project, 'gitlab:https%3A%2F%2Fgitlab.example.com/group%2Fsub%2Frepo');
+});
+
 test('project owner deletes a project from its danger zone and the list moves on', async (t) => {
   const app = await loadApp();
   t.after(app.close);

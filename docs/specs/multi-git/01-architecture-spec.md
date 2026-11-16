@@ -51,6 +51,8 @@ UNIQUE (user_id, provider_kind, instance_key)
 
 **决策**：`repositories.gongfeng_project_id` 继续承载外部身份字符串（新增 `gitlab:<instance_key>/<url-encoded-path>` 编码）；同时在 `repositories` 增加 `external_ref_json` 列存结构化身份 `{providerKind, instanceKey, externalId, fullPath, apiBaseUrl}`。
 
+> **实施偏差（as-built）**：`external_ref_json` 未建独立列——`repositories` 行本就以 payload JSON 存整个 `domain.Repository`，`ExternalRef *RepositoryExternalRef` 作为结构化字段内嵌其中，读写路径零额外 schema。migration 实际为 `034_user_provider_tokens.sql`（027/028 编号未使用）。语义与本 ADR 一致，仅存储位置不同。
+
 **理由**：
 - `GongfengProjectID` 渗透面太大（API DTO、前端、run 快照 `RepositoryContext`、migrations、`github:` 字符串判断 6+ 处），v1 改名破坏面不可接受。
 - `external_ref_json` 提供结构化身份供新代码使用；旧代码继续读字符串字段，读路径逐步迁移。
@@ -94,8 +96,8 @@ internal/httpapi/
   sync.go / tracker.go  -- 扩展现有 sync handlers 的 provider 维度
 
 migrations/
-  027_user_provider_tokens.sql
-  028_repository_external_ref.sql
+  034_user_provider_tokens.sql   -- 实际编号（027/028 未使用）
+  -- external_ref 无独立迁移：内嵌 repositories payload JSON
 ```
 
 **与 Spec §11.3 的差异**（已按 AGENTS.md 修正）：
@@ -158,12 +160,10 @@ Handler 层：新增 `providersHandlers`（集成管理 API）+ `gitlabWebhookHa
 ## 5. 数据模型增量
 
 ```text
--- 027_user_provider_tokens.sql
+-- 034_user_provider_tokens.sql（实际编号）
 CREATE TABLE user_provider_tokens (...);  -- 见 ADR-2
 
--- 028_repository_external_ref.sql
-ALTER TABLE repositories ADD COLUMN external_ref_json TEXT NULL;
--- 存量 github:/gongfeng 行不回填；新代码读不到 external_ref 时回退解析 GongfengProjectID
+-- external_ref_json 未建列：ExternalRef 内嵌 domain.Repository payload JSON
 ```
 
 `domain.Repository` 增加 `ExternalRef *RepositoryExternalRef`（json 内嵌，API 输出时展开或保持 json 字段——待 02-provider-contracts 定）。

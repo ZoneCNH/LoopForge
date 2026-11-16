@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -13,6 +14,11 @@ import (
 var githubPRURL = regexp.MustCompile(`https?://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(\d+)`)
 
 var gongfengMRURL = regexp.MustCompile(`https?://git\.example\.com/([^\s"'<>#]+)/merge_requests/(\d+)`)
+
+// gitlabMRURL matches GitLab Self-Managed merge request links of the form
+// https://<instance>/<group>/<repo>/-/merge_requests/<iid>. Gongfeng URLs use
+// /merge_requests/ without the /-/ marker, so the two patterns never overlap.
+var gitlabMRURL = regexp.MustCompile(`(https?://[^\s"'<>]+?)/-/merge_requests/(\d+)`)
 
 // GongfengMRRef is one merge request URL extracted from free text.
 type GongfengMRRef struct {
@@ -35,24 +41,57 @@ func ParseGongfengMRs(text string) []GongfengMRRef {
 	for _, match := range githubPRURL.FindAllStringSubmatch(text, -1) {
 		text = strings.ReplaceAll(text, match[0], "https://git.example.com/github:"+match[1]+"/merge_requests/"+match[2])
 	}
-	matches := gongfengMRURL.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 {
-		return nil
+	type positionedRef struct {
+		start int
+		ref   GongfengMRRef
 	}
-	out := make([]GongfengMRRef, 0, len(matches))
-	seen := map[string]struct{}{}
-	for _, match := range matches {
-		project := strings.TrimSuffix(strings.TrimSuffix(match[1], "/"), "/-")
-		iid, _ := strconv.Atoi(match[2])
+	found := make([]positionedRef, 0, 8)
+	for _, m := range gongfengMRURL.FindAllStringSubmatchIndex(text, -1) {
+		project := strings.TrimSuffix(strings.TrimSuffix(text[m[2]:m[3]], "/"), "/-")
+		iid, _ := strconv.Atoi(text[m[4]:m[5]])
 		if project == "" || iid <= 0 {
 			continue
 		}
+		found = append(found, positionedRef{start: m[0], ref: GongfengMRRef{
+			Project: project, IID: iid, URL: GongfengMRURL(project, iid),
+		}})
+	}
+	for _, m := range gitlabMRURL.FindAllStringSubmatchIndex(text, -1) {
+		base := text[m[2]:m[3]]
+		iid, _ := strconv.Atoi(text[m[4]:m[5]])
+		if iid <= 0 {
+			continue
+		}
+		// GitHub 与遗留工蜂 host 有各自的 MR 解析路径，不做 GitLab 归类。
+		if u, err := url.Parse(base); err == nil {
+			switch strings.ToLower(u.Hostname()) {
+			case "github.com", "git.example.com":
+				continue
+			}
+		}
+		key, path, ref, ok := ParseGitLabRepoURL(base)
+		if !ok {
+			continue
+		}
+		found = append(found, positionedRef{start: m[0], ref: GongfengMRRef{
+			Project: ref, IID: iid,
+			URL: GitLabWebURL(key, path) + "/-/merge_requests/" + strconv.Itoa(iid),
+		}})
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	sort.SliceStable(found, func(i, j int) bool { return found[i].start < found[j].start })
+	out := make([]GongfengMRRef, 0, len(found))
+	seen := map[string]struct{}{}
+	for _, item := range found {
+		project, iid := item.ref.Project, item.ref.IID
 		key := gongfengMRKey(project, iid)
 		if _, ok := seen[key]; ok {
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, GongfengMRRef{Project: project, IID: iid, URL: GongfengMRURL(project, iid)})
+		out = append(out, item.ref)
 	}
 	return out
 }

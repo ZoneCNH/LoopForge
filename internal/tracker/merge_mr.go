@@ -26,8 +26,11 @@ func (s *Service) MergeSourceBranchMR(project, sourceBranch string) (string, err
 // only merges an already-open MR for the source (no create). Same source and
 // target is a no-op.
 func (s *Service) EnsureAndMergeBranchMR(project, sourceBranch, targetBranch, title, description string) (string, error) {
-	if strings.HasPrefix(project, "github:") {
+	switch projectProviderKind(project) {
+	case ProviderGitHub:
 		return s.githubMergeBranch(project, sourceBranch, targetBranch, title, description)
+	case ProviderGitLab:
+		return s.gitlabMergeBranch(project, sourceBranch, targetBranch, title, description)
 	}
 	project = strings.TrimSpace(project)
 	src := strings.TrimSpace(sourceBranch)
@@ -137,8 +140,11 @@ type gongfengListedMR struct {
 // newest non-closed one, else the newest closed one. It is the authoritative
 // MR of a run repository; agents' MR links in artifacts are only a fallback.
 func (s *Service) FindBranchMR(project, sourceBranch string) (domain.DeliveryMR, bool, error) {
-	if strings.HasPrefix(project, "github:") {
+	switch projectProviderKind(project) {
+	case ProviderGitHub:
 		return s.githubFindBranch(project, sourceBranch)
+	case ProviderGitLab:
+		return s.gitlabFindBranch(project, sourceBranch)
 	}
 	project = strings.TrimSpace(project)
 	src := strings.TrimSpace(sourceBranch)

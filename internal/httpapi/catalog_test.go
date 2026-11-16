@@ -638,6 +638,64 @@ func TestNewProjectDefaultsToGenericBackendDeliverySOP(t *testing.T) {
 	}
 }
 
+func TestRepositoryGitLabSetup(t *testing.T) {
+	s, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	h := New(s, engine.New(s, runtime.NewManager(filepath.Join(t.TempDir(), "workspaces"))), tracker.NewService(), "", "")
+	requestJSON[domain.Project](t, h, http.MethodPost, "/api/projects", domain.Project{ID: "glproj", Key: "GL", Name: "GL"}, http.StatusOK)
+
+	// "git clone git@host:path" 是 GitLab 复制按钮的标准格式：SSH 粘贴必须
+	// 保留 SSH clone URL，而不是落库成 https。
+	sshPaste := requestJSON[domain.Repository](t, h, http.MethodPost, "/api/repositories", map[string]any{
+		"projectId": "glproj",
+		"provider":  "gitlab",
+		"repoUrl":   "git clone git@gitlab.example.com:g/r.git",
+	}, http.StatusOK)
+	wantRef := domain.FormatGitLabProjectRef("https://gitlab.example.com", "g/r")
+	if sshPaste.GongfengProjectID != wantRef {
+		t.Fatalf("gitlab ref = %q, want %q", sshPaste.GongfengProjectID, wantRef)
+	}
+	if sshPaste.CloneURL != "git@gitlab.example.com:g/r.git" {
+		t.Fatalf("ssh clone url must be preserved, got %q", sshPaste.CloneURL)
+	}
+	if sshPaste.ExternalRef == nil || sshPaste.ExternalRef.SSHCloneURL != "git@gitlab.example.com:g/r.git" {
+		t.Fatalf("external ref must carry ssh clone url: %+v", sshPaste.ExternalRef)
+	}
+
+	// Web 走非标端口、SSH 走 22 的 Self-Managed 部署：cloneUrl 解析出的实例
+	// key 不含 Web 端口，按 hostname+path 判定同一仓库，不误拒。
+	portMixed := requestJSON[domain.Repository](t, h, http.MethodPost, "/api/repositories", map[string]any{
+		"projectId": "glproj",
+		"provider":  "gitlab",
+		"repoUrl":   "https://gitlab.example.com:8443/g/r",
+		"cloneUrl":  "git@gitlab.example.com:g/r.git",
+	}, http.StatusOK)
+	wantPortRef := domain.FormatGitLabProjectRef("https://gitlab.example.com:8443", "g/r")
+	if portMixed.GongfengProjectID != wantPortRef {
+		t.Fatalf("port instance ref = %q, want %q", portMixed.GongfengProjectID, wantPortRef)
+	}
+
+	// webUrl 指向另一台主机必须 400，防止跨实例字段静默落库。
+	requestJSON[map[string]string](t, h, http.MethodPost, "/api/repositories", map[string]any{
+		"projectId": "glproj",
+		"provider":  "gitlab",
+		"repoUrl":   "https://gitlab.example.com/g/r",
+		"webUrl":    "https://evil.example.com/g/r",
+	}, http.StatusBadRequest)
+
+	// gitlab: 规范引用直接可用（前端编码形式与 Go canonical 形式都能解析）。
+	byRef := requestJSON[domain.Repository](t, h, http.MethodPost, "/api/repositories", map[string]any{
+		"projectId": "glproj",
+		"repoUrl":   "gitlab:https%3A%2F%2Fgitlab.example.com/g%2Fr",
+	}, http.StatusOK)
+	if byRef.GongfengProjectID != wantRef {
+		t.Fatalf("gitlab: ref must round-trip to %q, got %q", wantRef, byRef.GongfengProjectID)
+	}
+}
+
 func TestRepositoryOneLinkSetup(t *testing.T) {
 	s, err := repo.OpenTest()
 	if err != nil {

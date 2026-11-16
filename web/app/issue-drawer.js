@@ -226,7 +226,7 @@ function renderIssueDetailTab(){
 }
 function drawerFact(label,value,title){return `<div class="detail-fact"><span>${label}</span><b title="${escapeHTML(title||value||'')}">${value===''||value==null?'—':value}</b></div>`}
 function clarificationOverviewCard(issue){
-  const c=issue.clarification||{},source=issue.source==='gongfeng'?'工蜂':issue.source==='tapd'?'TAPD':'LoopForge';
+  const c=issue.clarification||{},source=issue.source==='gongfeng'?'工蜂':issue.source==='gitlab'?'GitLab':issue.source==='tapd'?'TAPD':'LoopForge';
   if(issueClarifying(issue.id)||c.status==='analyzing'){
     return `<div class="clarify-overview"><span>…</span><div><b>澄清正在后台分析</b><small>关闭网页也不会中断，点查看可回到分析过程</small></div><button class="button ghost small" data-start-clarify>查看</button></div>`;
   }
@@ -558,7 +558,7 @@ function clarifyHistoryHTML(c){
   return `<details class="clarify-history"><summary>澄清过程（${rows.length} 条）</summary><div class="clarify-turns">${rows.join('')}</div></details>`;
 }
 function clarifyPane(issue,project){
-  const c=recoverClarifyView(issue.clarification||{}),source=issue.source==='gongfeng'?'工蜂 Issue':issue.source==='tapd'?'TAPD 需求':'工作项';
+  const c=recoverClarifyView(issue.clarification||{}),source=issue.source==='gongfeng'?'工蜂 Issue':issue.source==='gitlab'?'GitLab Issue':issue.source==='tapd'?'TAPD 需求':'工作项';
   if(c.status==='ready'&&submittedClarifyDraft?.issueId===issue.id)submittedClarifyDraft=null;
   const writeBack=c.writeBackStatus==='succeeded'?`已写回 ${source}`:c.writeBackStatus==='failed'?'写回失败':c.writeBackStatus==='skipped'?'仅保存到 LoopForge':'';
   if(c.status==='ready'&&c.summary){
@@ -956,7 +956,7 @@ async function deleteIssueById(issueId){
   if(!issueCanDelete(issue))return toast(issueDeletionBlock(issue).reason,'err');
   const force=issue.deletionRequiresForce===true;
   const title=force?'强制删除需求':'删除需求';
-  const external=issue.source==='tapd'||issue.source==='gongfeng';
+  const external=issue.source==='tapd'||issue.source==='gongfeng'||issue.source==='gitlab';
   if(!await afConfirm({title,message:`确定${title}「${issue.title||issue.id}」？${issueDeletionWarning(force,external)}`,danger:true,confirmText:force?'确认强制删除':'确认删除'}))return;
   try{
     await api(issueDeletePath(issueId,force),{method:'DELETE'});

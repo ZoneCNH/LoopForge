@@ -20,6 +20,11 @@ type DeliveryMR struct {
 	// GongfengState is the raw Gongfeng state from a live lookup; empty when
 	// the MR was only recovered from artifact text.
 	GongfengState string `json:"-"`
+	// PipelineStatus/PipelineURL carry the latest CI pipeline observed for
+	// providers that expose one (GitLab). Empty means unknown — never
+	// treat empty as success.
+	PipelineStatus string `json:"pipelineStatus,omitempty"`
+	PipelineURL    string `json:"pipelineUrl,omitempty"`
 }
 
 // GongfengMRURL is the canonical web URL of a Gongfeng merge request.

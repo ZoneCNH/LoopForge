@@ -59,7 +59,9 @@ test('issue list helpers filter, format, parse repositories, and persist edits',
   assert.equal(result.parsed[0].cloneUrl, 'git@git.example.com:team/service.git');
   assert.equal(result.parsed[1].project, 'team/service');
   assert.equal(result.parsed[2].name, 'repo');
-  assert.equal(result.parsed[3], null);
+  // github.com 与 git.example.com 之外的 http(s) 主机按 GitLab Self-Managed 解析。
+  assert.equal(result.parsed[3].provider, 'gitlab');
+  assert.equal(result.parsed[3].project, 'gitlab:https%3A%2F%2Fevil.example/team%2Frepo');
   assert.equal(result.parsed[4], null);
   // GitHub SSH-style addresses stay GitHub repositories, as on the server.
   for (const github of result.parsed.slice(5)) {

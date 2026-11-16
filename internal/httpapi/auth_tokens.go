@@ -67,6 +67,11 @@ func protectedAccessPath(path string) bool {
 	if path == insightIngestPath {
 		return false
 	}
+	// The GitLab webhook authenticates via X-Gitlab-Token inside its handler;
+	// GitLab cannot present a session cookie or Bearer token.
+	if path == "/api/hooks/gitlab" {
+		return false
+	}
 	if path == "/mcp" {
 		return true
 	}

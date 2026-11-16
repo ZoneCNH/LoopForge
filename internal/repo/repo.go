@@ -287,7 +287,7 @@ func (s *Store) StorageInfo() map[string]any {
 }
 
 func IssueBoundToTracker(issue domain.Issue) bool {
-	if issue.Source != "gongfeng" && issue.Source != "tapd" {
+	if issue.Source != "gongfeng" && issue.Source != "tapd" && issue.Source != "gitlab" {
 		return false
 	}
 	if issue.ExternalRef == nil {
