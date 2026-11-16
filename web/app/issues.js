@@ -270,13 +270,14 @@ function issuePriorityMarkup(value){
 function issueSourceLabel(i){
   const s=metricsIssueSource(i);
   if(s==='github')return 'GitHub';
+  if(s==='gitlab')return 'GitLab';
   if(s==='gongfeng')return '工蜂';
   if(s==='tapd')return 'TAPD';
   return '平台新建';
 }
 function issueSourceMarkup(i){
   const s=metricsIssueSource(i)||'local';
-  const tone=s==='github'?'github':s==='gongfeng'?'gongfeng':s==='tapd'?'tapd':'local';
+  const tone=s==='github'?'github':s==='gitlab'?'gitlab':s==='gongfeng'?'gongfeng':s==='tapd'?'tapd':'local';
   const label=issueSourceLabel(i);
   return `<span class="issue-source-chip tone-${tone}" title="需求来源：${escapeHTML(label)}">${escapeHTML(label)}</span>`;
 }
@@ -330,7 +331,7 @@ function issueMatchesStatusFilter(issue,filter){
 function issuePriorityLabel(value){return ({urgent:'紧急',high:'高',medium:'中',low:'低'}[value]||value||'—')}
 function taskStatusLabel(value){return ({queued:'排队中',dispatched:'已调度',running:'运行中',completed:'已完成',failed:'失败',cancelled:'已取消'}[value]||value||'—')}
 function issueKeyLabel(i){
-  if(i.source==='gongfeng'&&i.externalRef?.externalIid) return `#${i.externalRef.externalIid}`;
+  if((i.source==='gongfeng'||i.source==='gitlab')&&i.externalRef?.externalIid) return `#${i.externalRef.externalIid}`;
   if(i.source==='tapd'&&i.externalRef?.externalId) return String(i.externalRef.externalId);
   const p=(state.data.projects||[]).find(x=>x.id===i.projectId);
   return `${p?.key||'ISS'}-${i.number||''}`;
@@ -523,7 +524,7 @@ function openIssue(issue=null){
     });
   }
   showManualBinding();
-  if(note){note.hidden=isNew||!v.externalRef;const text=$('#issueBoundNoteText');if(text&&v.externalRef){const src=v.externalRef.source==='github'?'GitHub Issue':v.externalRef.source==='tapd'?'TAPD':v.externalRef.source==='gongfeng'?'工蜂 Issue':'外部';const id=v.externalRef.externalIid||v.externalRef.externalId||'';text.innerHTML=`已关联 ${src} <b>${escapeHTML(String(id))}</b>。保存只改本平台记录，不会回写外部单据。`}}
+  if(note){note.hidden=isNew||!v.externalRef;const text=$('#issueBoundNoteText');if(text&&v.externalRef){const src=v.externalRef.source==='github'?'GitHub Issue':v.externalRef.source==='gitlab'?'GitLab Issue':v.externalRef.source==='tapd'?'TAPD':v.externalRef.source==='gongfeng'?'工蜂 Issue':'外部';const id=v.externalRef.externalIid||v.externalRef.externalId||'';text.innerHTML=`已关联 ${src} <b>${escapeHTML(String(id))}</b>。保存只改本平台记录，不会回写外部单据。`}}
   const submit=document.querySelector('#issueForm button[type="submit"]');
   if(submit)submit.textContent=isNew?'创建需求':'保存';
   $('#issueModal').classList.add('open');

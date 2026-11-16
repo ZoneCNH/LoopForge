@@ -100,7 +100,7 @@ async function deleteSelectedIssues(){
   syncIssueSelection(filtered);
   const issues=filtered.filter(i=>state.issueSelection.has(i.id));
   if(!issues.length)return toast('请先选择可删除的需求');
-  const scope=issueSelectionFilterKey(),external=issues.some(i=>i.source==='tapd'||i.source==='gongfeng');
+  const scope=issueSelectionFilterKey(),external=issues.some(i=>i.source==='tapd'||i.source==='gongfeng'||i.source==='gitlab');
   const forceIDs=new Set(issues.filter(i=>i.deletionRequiresForce===true).map(i=>i.id));
   const names=issues.slice(0,5).map(i=>`「${i.title||i.id}」`).join('、')+(issues.length>5?'等':'');
   const forceNotice=forceIDs.size?`其中 ${forceIDs.size} 条已有执行记录或已完成，将强制删除。`:'';
