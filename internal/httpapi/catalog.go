@@ -968,6 +968,9 @@ func (h *catalogHandlers) dockerfiles(c *gin.Context) {
 				respond(c, err)
 				return
 			}
+			if !h.requireSharedAssetWriter(c, v.Shared) {
+				return
+			}
 			if existing, ok := h.repo.Dockerfile(v.ID); ok && existing.ProjectID != "" && existing.ProjectID != v.ProjectID {
 				c.JSON(http.StatusConflict, map[string]string{"error": "Dockerfile 标识已被其他项目使用"})
 				return
@@ -1003,6 +1006,9 @@ func (h *catalogHandlers) environments(c *gin.Context) {
 				respond(c, err)
 				return
 			}
+			if !h.requireSharedAssetWriter(c, v.Shared) {
+				return
+			}
 			if existing, ok := h.repo.Environment(v.ID); ok && existing.ProjectID != "" && existing.ProjectID != v.ProjectID {
 				c.JSON(http.StatusConflict, map[string]string{"error": "环境安装脚本标识已被其他项目使用"})
 				return
@@ -1036,6 +1042,9 @@ func (h *catalogHandlers) sandboxes(c *gin.Context) {
 			v.ID, v.ProjectID = strings.TrimSpace(v.ID), strings.TrimSpace(v.ProjectID)
 			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, v.Shared, "沙箱"); err != nil {
 				respond(c, err)
+				return
+			}
+			if !h.requireSharedAssetWriter(c, v.Shared) {
 				return
 			}
 			if existing, ok := h.repo.Sandbox(v.ID); ok && existing.ProjectID != "" && existing.ProjectID != v.ProjectID {
@@ -1091,6 +1100,22 @@ func (h *catalogHandlers) validateEnvironmentAsset(id, name, projectID string, s
 		return fmt.Errorf("项目不存在")
 	}
 	return nil
+}
+
+// A shared asset runs in every project's sandbox, so rewriting it is a platform
+// administrator action. Service tokens carry no user identity and keep working.
+func (h *catalogHandlers) requireSharedAssetWriter(c *gin.Context, shared bool) bool {
+	if !shared || !authRequired() {
+		return true
+	}
+	if _, ok := h.deps.requestUser(c.Request, true); !ok {
+		return true
+	}
+	if h.deps.isPlatformAdmin(c.Request) {
+		return true
+	}
+	c.JSON(http.StatusForbidden, map[string]string{"error": "共享环境资产只有平台管理员可以修改"})
+	return false
 }
 
 func (h *catalogHandlers) sharedEnvironmentReference(kind, id string) bool {
