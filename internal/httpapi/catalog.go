@@ -964,7 +964,7 @@ func (h *catalogHandlers) dockerfiles(c *gin.Context) {
 		var v domain.DockerfileDefinition
 		if decode(c, &v) {
 			v.ID, v.ProjectID = strings.TrimSpace(v.ID), strings.TrimSpace(v.ProjectID)
-			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, "Dockerfile"); err != nil {
+			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, v.Shared, "Dockerfile"); err != nil {
 				respond(c, err)
 				return
 			}
@@ -999,7 +999,7 @@ func (h *catalogHandlers) environments(c *gin.Context) {
 		var v domain.EnvironmentDefinition
 		if decode(c, &v) {
 			v.ID, v.ProjectID = strings.TrimSpace(v.ID), strings.TrimSpace(v.ProjectID)
-			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, "环境安装脚本"); err != nil {
+			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, v.Shared, "环境安装脚本"); err != nil {
 				respond(c, err)
 				return
 			}
@@ -1034,7 +1034,7 @@ func (h *catalogHandlers) sandboxes(c *gin.Context) {
 		var v domain.SandboxProfile
 		if decode(c, &v) {
 			v.ID, v.ProjectID = strings.TrimSpace(v.ID), strings.TrimSpace(v.ProjectID)
-			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, "沙箱"); err != nil {
+			if err := h.validateEnvironmentAsset(v.ID, v.Name, v.ProjectID, v.Shared, "沙箱"); err != nil {
 				respond(c, err)
 				return
 			}
@@ -1078,9 +1078,14 @@ func filterOwnedByProject[T any](items []T, projectID string, owner func(T) stri
 	return out
 }
 
-func (h *catalogHandlers) validateEnvironmentAsset(id, name, projectID, kind string) error {
-	if id == "" || strings.TrimSpace(name) == "" || projectID == "" {
+// A shared asset belongs to no project (that is how the seeded platform image
+// and sandbox work), so projectId is optional when shared is set.
+func (h *catalogHandlers) validateEnvironmentAsset(id, name, projectID string, shared bool, kind string) error {
+	if id == "" || strings.TrimSpace(name) == "" || (projectID == "" && !shared) {
 		return fmt.Errorf("%s 需要 id、name 和 projectId", kind)
+	}
+	if projectID == "" {
+		return nil
 	}
 	if _, ok := h.repo.Project(projectID); !ok {
 		return fmt.Errorf("项目不存在")
