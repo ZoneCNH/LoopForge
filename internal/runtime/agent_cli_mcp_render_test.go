@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"agentflow/internal/domain"
 )
 
 func readAgentCLIMCPDoc(t *testing.T, home, rel string) any {
@@ -95,5 +97,34 @@ func TestWriteAgentCLIMCPConfigDeepSeekInserts(t *testing.T) {
 	}
 	if got := readAgentCLIMCPDoc(t, empty, rel); !reflect.DeepEqual(got, []any{}) {
 		t.Fatalf("deepseek empty mcp: %v", got)
+	}
+}
+
+// A stdio server without args must not render "args": null; pi rejects the
+// whole entry with "args must be an array of strings" and drops the server.
+func TestWriteAgentCLIMCPConfigPiOmitsEmptyArgs(t *testing.T) {
+	home := t.TempDir()
+	entries, err := mcpConfigEntries([]domain.MCPServerDefinition{{
+		ID:          "agentflow-gate",
+		Transport:   "stdio",
+		Command:     ".agentflow/config/gate-mcp",
+		Environment: map[string]string{"AGENTFLOW_GATE_RESULT_PATH": ".agentflow/gate-results/clarify/attempt-1.json"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteAgentCLIMCPConfig(AgentCLIPi, HostAgentCLIHome(home), entries, AgentCLIMCPOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	servers := readAgentCLIMCPDoc(t, home, ".pi/agent/mcp.json").(map[string]any)["mcpServers"].(map[string]any)
+	gate, _ := servers["agentflow-gate"].(map[string]any)
+	if gate == nil {
+		t.Fatalf("gate server missing: %v", servers)
+	}
+	if value, ok := gate["args"]; ok {
+		t.Fatalf("pi gate server must omit args, rendered %#v", value)
+	}
+	if gate["command"] != ".agentflow/config/gate-mcp" {
+		t.Fatalf("command: %v", gate["command"])
 	}
 }
