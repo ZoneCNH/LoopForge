@@ -755,6 +755,28 @@ func (r *RunnersRepo) ExpireRunnerTasks(now time.Time) ([]domain.RunnerTask, err
 	return recovered, err
 }
 
+// OverdueRunnerTasks lists tasks still leased or running long after dispatch.
+// A wedged CLI keeps renewing its lease, so ExpireRunnerTasks never fires; the
+// wall clock is the only thing that ends such a task. created_at is the
+// per-attempt start because every dispatch inserts a new task row.
+func (r *RunnersRepo) OverdueRunnerTasks(deadline time.Duration, now time.Time) []domain.RunnerTask {
+	if deadline <= 0 {
+		return nil
+	}
+	var rows []runnerTaskRow
+	if err := r.DB.
+		Where("status IN ? AND created_at IS NOT NULL AND created_at < ? AND COALESCE(desired_state, '') <> ?",
+			[]string{domain.RunnerTaskLeased, domain.RunnerTaskRunning}, now.Add(-deadline), domain.RunnerTaskDesiredCancel).
+		Find(&rows).Error; err != nil {
+		return nil
+	}
+	tasks := make([]domain.RunnerTask, 0, len(rows))
+	for _, row := range rows {
+		tasks = append(tasks, runnerTaskFromRow(row))
+	}
+	return tasks
+}
+
 // AppendRunnerTaskEvents stores batched runner output. (task_id, seq) is the
 // idempotency key: an HTTP retry resends the same seq and is ignored.
 func (r *RunnersRepo) AppendRunnerTaskEvents(taskID string, events []domain.RunnerTaskEvent) (int, error) {
