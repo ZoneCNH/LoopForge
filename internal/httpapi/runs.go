@@ -24,6 +24,16 @@ type runsHandlers struct {
 	assistant      *assistantHandlers
 }
 
+// requireNodeID rejects node actions without nodeId; the engine can only
+// answer "node is not waiting for approval", which hides the missing field.
+func requireNodeID(c *gin.Context, nodeID string) bool {
+	if strings.TrimSpace(nodeID) != "" {
+		return true
+	}
+	c.JSON(http.StatusBadRequest, map[string]string{"error": "nodeId is required"})
+	return false
+}
+
 func (h *runsHandlers) analytics(c *gin.Context) {
 	filter := domain.AnalyticsFilter{
 		Origin:           c.Query("origin"),
@@ -250,6 +260,9 @@ func (h *runsHandlers) run(c *gin.Context) {
 	case "/api/runs/:id/approve":
 		var req domain.HumanDecision
 		if decode(c, &req) {
+			if !requireNodeID(c, req.NodeID) {
+				return
+			}
 			if rejectBlockedIssueRun(h.deps, c, id) {
 				return
 			}
@@ -258,6 +271,9 @@ func (h *runsHandlers) run(c *gin.Context) {
 	case "/api/runs/:id/reject":
 		var req domain.RejectRequest
 		if decode(c, &req) {
+			if !requireNodeID(c, req.NodeID) {
+				return
+			}
 			if rejectBlockedIssueRun(h.deps, c, id) {
 				return
 			}
@@ -266,6 +282,12 @@ func (h *runsHandlers) run(c *gin.Context) {
 	case "/api/runs/:id/retry":
 		var req domain.HumanDecision
 		if decode(c, &req) {
+			if rejectBlockedIssueRun(h.deps, c, id) {
+				return
+			}
+			if !requireNodeID(c, req.NodeID) {
+				return
+			}
 			if rejectBlockedIssueRun(h.deps, c, id) {
 				return
 			}

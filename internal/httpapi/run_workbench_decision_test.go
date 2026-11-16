@@ -11,6 +11,27 @@ import (
 	"testing"
 )
 
+func TestWorkbenchDecisionRejectsMissingNodeID(t *testing.T) {
+	st, err := repo.OpenTest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err = st.PutRun(domain.Run{ID: "decision", Status: "waiting", Nodes: map[string]*domain.NodeRun{"accept": {NodeID: "accept", Status: "waiting_approval"}}}); err != nil {
+		t.Fatal(err)
+	}
+	h := &runsHandlers{deps: &deps{repo: st, engine: engine.New(st, runtime.NewManager(t.TempDir()))}}
+	g := gin.New()
+	g.POST("/api/runs/:id/approve", h.run)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/runs/decision/approve", strings.NewReader(`{"note":"ok"}`))
+	req.Header.Set("Content-Type", "application/json")
+	g.ServeHTTP(rec, req)
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "nodeId is required") {
+		t.Fatalf("missing nodeId: status %d body %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestWorkbenchDecisionRejectsStaleAttempt(t *testing.T) {
 	st, err := repo.OpenTest()
 	if err != nil {
