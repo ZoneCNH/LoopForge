@@ -150,6 +150,22 @@ func compactCommand(args []string) string {
 
 // sensitiveProcessEnvironmentKey matches by suffix so the key variable of a
 // newly added agent CLI is redacted without being listed here.
+// dockerEnvFlags splits -e pairs into docker flags and client-side pairs. A
+// sensitive value is passed as `-e KEY` (docker takes the value from its own
+// environment), so the secret never enters the container argv that ps shows.
+func dockerEnvFlags(pairs []string) (flags, clientEnv []string) {
+	for _, pair := range pairs {
+		key, _, found := strings.Cut(pair, "=")
+		if found && sensitiveProcessEnvironmentKey(key) {
+			flags = append(flags, "-e", key)
+			clientEnv = append(clientEnv, pair)
+			continue
+		}
+		flags = append(flags, "-e", pair)
+	}
+	return flags, clientEnv
+}
+
 func sensitiveProcessEnvironmentKey(key string) bool {
 	key = strings.ToUpper(key)
 	for _, suffix := range []string{"_API_KEY", "_TOKEN", "_SECRET", "_PASSWORD"} {
