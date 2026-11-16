@@ -91,14 +91,33 @@ func TestGitLabLiveSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListMRDeliveryStates: %v", err)
 	}
+	found := false
 	for _, row := range rows {
 		if row.MRProject == ref && row.MRIID == iid {
+			found = true
 			t.Logf("delivery state: %s target=%s", row.State, row.TargetBranch)
 			if row.State == "" || row.State == "unknown" {
 				t.Fatalf("refreshed state is %q", row.State)
 			}
-			return
 		}
 	}
-	t.Fatalf("delivery row for %s!%d not found", ref, iid)
+	if !found {
+		t.Fatalf("delivery row for %s!%d not found", ref, iid)
+	}
+	// Issue 拉取路径同样走真实 API；项目无 issue 时预期导入 0 条且不报错。
+	// 直接调 pullGitLabIssues，避免 PullAll 被项目 TAPD 配置干扰。
+	var liveRepo domain.Repository
+	for _, r := range st.Repositories() {
+		if r.GongfengProjectID == ref {
+			liveRepo = r
+		}
+	}
+	if liveRepo.ID == "" {
+		t.Fatal("live repository not visible to store")
+	}
+	imported, err := svc.pullGitLabIssues(st, liveRepo)
+	if err != nil {
+		t.Fatalf("pullGitLabIssues: %v", err)
+	}
+	t.Logf("pullGitLabIssues imported %d issues", imported)
 }
