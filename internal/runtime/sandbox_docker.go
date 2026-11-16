@@ -157,9 +157,8 @@ func (s *dockerSandbox) execOnce(ctx context.Context, command CommandSpec, sink 
 	if command.Stdin != nil {
 		args = append(args, "-i")
 	}
-	for _, environment := range appendEnvironment(nil, s.profile.Environment, command.environment) {
-		args = append(args, "-e", environment)
-	}
+	flags, clientEnv := dockerEnvFlags(appendEnvironment(nil, s.profile.Environment, command.environment))
+	args = append(args, flags...)
 	cliPath, err := s.onDemandCLIPath(ctx, command)
 	if err != nil {
 		return "", err
@@ -190,6 +189,9 @@ cd "$1" && shift && exec "$@"`, "conversation", command.WorkingDir}, dropShellLo
 	}
 	args = append(args, argv...)
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	if len(clientEnv) > 0 {
+		cmd.Env = append(os.Environ(), clientEnv...)
+	}
 	cmd.Stdin = command.Stdin
 	return runCommand(cmd, sink)
 }

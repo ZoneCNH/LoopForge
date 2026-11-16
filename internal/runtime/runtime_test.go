@@ -1690,6 +1690,23 @@ func TestEphemeralCreateDeletesWorkspaceOnClose(t *testing.T) {
 	}
 }
 
+func TestDockerEnvFlagsKeepSecretsOutOfArgv(t *testing.T) {
+	flags, clientEnv := dockerEnvFlags([]string{"AGENTFLOW_CLI_API_KEY=sk-gateway", "DSH_HOME=/home/.dsh", "GIT_CONFIG_KEY_0=url.https://t@git/.insteadof"})
+	joined := strings.Join(flags, " ")
+	for _, leaked := range []string{"sk-gateway", "https://t@"} {
+		if strings.Contains(joined, leaked) {
+			t.Fatalf("secret stayed in docker flags: %s", joined)
+		}
+	}
+	want := "-e AGENTFLOW_CLI_API_KEY -e DSH_HOME=/home/.dsh -e GIT_CONFIG_KEY_0"
+	if joined != want {
+		t.Fatalf("flags = %q, want %q", joined, want)
+	}
+	if len(clientEnv) != 2 || clientEnv[0] != "AGENTFLOW_CLI_API_KEY=sk-gateway" {
+		t.Fatalf("client env = %v", clientEnv)
+	}
+}
+
 func TestCompactCommandKeepsShortCommandsAndBoundsPrompts(t *testing.T) {
 	short := []string{"sh", "-lc", "test -f result.json"}
 	if got := compactCommand(short); got != "sh -lc test -f result.json" {

@@ -131,12 +131,15 @@ func sandboxTerminalCommandBound(ctx context.Context, sandbox Sandbox, command C
 
 func (s *dockerSandbox) terminalCommand(command CommandSpec) *exec.Cmd {
 	args := []string{"exec", "-it"}
-	for _, value := range appendEnvironment(nil, s.profile.Environment, command.environment) {
-		args = append(args, "-e", value)
-	}
+	flags, clientEnv := dockerEnvFlags(appendEnvironment(nil, s.profile.Environment, command.environment))
+	args = append(args, flags...)
 	args = append(args, s.name)
 	args = append(args, dockerWorkspaceExecArgv(command.Argv)...)
 	cmd := exec.Command("docker", args...)
+	// Docker reads sensitive -e flags from this client environment.
+	for _, pair := range clientEnv {
+		cmd.Env = append(cmd.Env, pair)
+	}
 	// Docker's own client needs its context/socket configuration on the host. The
 	// container receives only the explicit -e list above, never this host HOME.
 	for _, key := range []string{"PATH", "HOME", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", "XDG_RUNTIME_DIR"} {
