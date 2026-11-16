@@ -272,8 +272,9 @@ func (e *Engine) dispatchRunnerTask(ctx context.Context, runnerID string, run do
 	if sink != nil {
 		sink(domain.TelemetryEvent{
 			Category: "sandbox", Name: "runner.dispatch", Phase: "start",
+			Provider: ex.Kind, Model: ex.Model,
 			Message:    fmt.Sprintf("任务下发到执行机器 %s（provider=%s task=%s）", runnerID, ex.Kind, task.ID),
-			Attributes: map[string]any{"provider": ex.Kind, "runnerId": runnerID, "taskId": task.ID},
+			Attributes: map[string]any{"provider": ex.Kind, "model": ex.Model, "runnerId": runnerID, "taskId": task.ID},
 		})
 	}
 	final, err := e.awaitRunnerTask(ctx, task.ID, sink)

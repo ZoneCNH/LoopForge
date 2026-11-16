@@ -720,6 +720,10 @@ func TestWorkflowAgentNodeDispatchesToRunner(t *testing.T) {
 		t.Fatal("seed agent developer missing")
 	}
 	agent.ExecutorID = "mock"
+	agent.Model = "e2e-model"
+	if err := s.PutAgent(agent); err != nil {
+		t.Fatal(err)
+	}
 	daemon, err := New(Config{
 		ServerURL:            server.URL,
 		BootstrapToken:       "boot-secret",
@@ -777,6 +781,11 @@ func TestWorkflowAgentNodeDispatchesToRunner(t *testing.T) {
 	node := final.Nodes["work"]
 	if node == nil || node.Status != "succeeded" {
 		t.Fatalf("unexpected node state: %+v", node)
+	}
+	// Analytics attributes usage to a model through the node run, so dispatch
+	// must record the model the executor actually used.
+	if node.Model != "e2e-model" {
+		t.Fatalf("node model = %q, want e2e-model", node.Model)
 	}
 	if !strings.Contains(node.Output, "runner integration input") {
 		t.Fatalf("node output missing runner result: %q", node.Output)
