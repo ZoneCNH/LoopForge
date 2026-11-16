@@ -692,6 +692,145 @@ paths:
                 $ref: "#/components/schemas/User"
         "403":
           $ref: "#/components/responses/Unauthorized"
+  /api/users/{id}/provider-tokens:
+    get:
+      tags: [Users]
+      operationId: listProviderTokens
+      summary: List provider API credentials (GitLab) for the current user; secrets are never returned
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      responses:
+        "200":
+          description: Provider token descriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProviderToken"
+        "403":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags: [Users]
+      operationId: saveProviderToken
+      summary: Save or replace a provider API credential (currently providerKind=gitlab only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [providerKind, instanceKey, token]
+              properties:
+                providerKind: {type: string, enum: [gitlab]}
+                instanceKey: {type: string, description: "Normalized GitLab instance base URL, e.g. https://gitlab.example.com"}
+                credentialType: {type: string}
+                token: {type: string, writeOnly: true}
+                scopesSummary: {type: string}
+                expiresAt: {type: string, format: date-time}
+      responses:
+        "200":
+          description: Saved provider token description
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderToken"
+        "400":
+          description: Invalid providerKind, instanceKey, or token
+        "403":
+          $ref: "#/components/responses/Unauthorized"
+  /api/users/{id}/provider-tokens/{tokenID}:
+    delete:
+      tags: [Users]
+      operationId: deleteProviderToken
+      summary: Delete a provider API credential of the current user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+        - name: tokenID
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Deleted
+        "403":
+          $ref: "#/components/responses/Unauthorized"
+  /api/users/{id}/provider-tokens/validate:
+    post:
+      tags: [Users]
+      operationId: validateProviderToken
+      summary: Validate a GitLab credential against {instance}/api/v4/user and persist the check status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                providerKind: {type: string, enum: [gitlab]}
+                instanceKey: {type: string}
+                token: {type: string, writeOnly: true, description: "Optional; when omitted the stored credential for the instance is validated"}
+      responses:
+        "200":
+          description: Validation result; valid credentials also update the stored status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: {type: boolean}
+                  login: {type: string}
+                  error: {type: string}
+        "400":
+          description: Invalid providerKind or instanceKey
+        "403":
+          $ref: "#/components/responses/Unauthorized"
+  /api/hooks/gitlab:
+    post:
+      tags: [Webhooks]
+      operationId: gitlabWebhook
+      summary: GitLab webhook receiver; authenticated by the X-Gitlab-Token shared secret, not by user session
+      description: >-
+        Returns 404 unless AGENTFLOW_GITLAB_WEBHOOK_SECRET is configured. Only
+        merge_request events for registered gitlab: repositories trigger an
+        authoritative refresh via the GitLab REST API; payload state is never
+        trusted. Provider auth/not-found failures return 200 ignored; transient
+        failures return 5xx so GitLab retries.
+      parameters:
+        - name: X-Gitlab-Token
+          in: header
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Event accepted or ignored
+        "401":
+          description: Missing or mismatched X-Gitlab-Token
+        "404":
+          description: Webhook secret not configured
+        "500":
+          description: Retryable provider or storage failure
   /api/platform/accounts:
     get:
       tags: [Users]
@@ -4256,6 +4395,22 @@ components:
         claudeCodeApiKeyConfigured: {type: boolean, readOnly: true}
         claudeCodeBaseUrl: {type: string}
         codeBuddyInternetEnvironment: {type: string}
+    ProviderToken:
+      type: object
+      required: [id, providerKind, instanceKey, status]
+      properties:
+        id: {type: string}
+        providerKind: {type: string, enum: [gitlab]}
+        instanceKey: {type: string, description: "Normalized GitLab instance base URL"}
+        name: {type: string}
+        credentialType: {type: string, enum: [pat, project_token, group_token]}
+        tokenHint: {type: string, description: "Masked token prefix; the secret is never returned"}
+        scopesSummary: {type: string}
+        expiresAt: {type: string, format: date-time}
+        lastValidatedAt: {type: string, format: date-time}
+        status: {type: string, enum: [active, auth_failed, revoked]}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
     RepositoryInput:
       type: object
       required: [projectId]

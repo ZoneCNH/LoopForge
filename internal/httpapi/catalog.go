@@ -194,6 +194,17 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			c.JSON(400, gin.H{"error": "GitLab 仓库地址无法识别，请提供 https://<gitlab-host>/<group>/<repo> 或 gitlab:<instance>/<path>"})
 			return
 		}
+		// webUrl/cloneUrl 若可解析为 GitLab 地址，必须与 repoUrl 指向同一仓库，
+		// 防止表单字段被改成另一个实例的地址后静默落库。
+		for _, extra := range []string{v.WebURL, v.CloneURL} {
+			if extra == "" {
+				continue
+			}
+			if _, _, rExtra, okExtra := domain.ParseGitLabRepoURL(strings.TrimPrefix(extra, "gitlab+")); okExtra && rExtra != v.GongfengProjectID {
+				c.JSON(400, gin.H{"error": "webUrl/cloneUrl 与 repoUrl 指向不同仓库"})
+				return
+			}
+		}
 	}
 	// GitHub and the optional legacy host keep their existing token flow (and
 	// GitHub's automatic pull requests) for SSH-style addresses unless the

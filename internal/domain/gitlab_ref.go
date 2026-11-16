@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"encoding/json"
 	"net"
 	"net/url"
 	"regexp"
@@ -227,9 +226,9 @@ func ParseGitLabRepoURL(raw string) (instanceKey, fullPath, projectRef string, o
 	return key, fullPath, FormatGitLabProjectRef(key, fullPath), true
 }
 
-// RepositoryExternalRef is the structured provider identity stored in
-// repositories.external_ref_json. GongfengProjectID remains the
-// compatibility carrier; this record is authoritative for new code.
+// RepositoryExternalRef is the structured provider identity stored inside
+// the repositories row payload. GongfengProjectID remains the compatibility
+// carrier; this record is authoritative for new code.
 type RepositoryExternalRef struct {
 	ProviderKind   string `json:"providerKind"` // "gitlab"
 	InstanceKey    string `json:"instanceKey"`
@@ -239,23 +238,4 @@ type RepositoryExternalRef struct {
 	DefaultBranch  string `json:"defaultBranch,omitempty"`
 	SSHCloneURL    string `json:"sshCloneUrl,omitempty"`
 	HTTPSCloneURL  string `json:"httpsCloneUrl,omitempty"`
-}
-
-// ParseRepositoryExternalRef decodes the external_ref_json column value.
-func ParseRepositoryExternalRef(raw string) (RepositoryExternalRef, bool) {
-	var ref RepositoryExternalRef
-	if strings.TrimSpace(raw) == "" {
-		return ref, false
-	}
-	if err := json.Unmarshal([]byte(raw), &ref); err != nil {
-		return RepositoryExternalRef{}, false
-	}
-	if ref.ProviderKind != GitLabProviderKind || NormalizeGitLabInstanceKey(ref.InstanceKey) == "" || strings.Trim(ref.FullPath, "/") == "" {
-		return RepositoryExternalRef{}, false
-	}
-	ref.InstanceKey = NormalizeGitLabInstanceKey(ref.InstanceKey)
-	if ref.APIBaseURL == "" {
-		ref.APIBaseURL = ref.InstanceKey + "/api/v4"
-	}
-	return ref, true
 }

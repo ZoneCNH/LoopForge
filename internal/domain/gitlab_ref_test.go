@@ -119,19 +119,4 @@ func TestParseGitLabRepoURLRejects(t *testing.T) {
 	}
 }
 
-func TestParseRepositoryExternalRef(t *testing.T) {
-	raw := `{"providerKind":"gitlab","instanceKey":"https://gitlab.example.com","externalId":"42","fullPath":"group/repo"}`
-	ref, ok := ParseRepositoryExternalRef(raw)
-	if !ok {
-		t.Fatal("ParseRepositoryExternalRef failed")
-	}
-	if ref.APIBaseURL != "https://gitlab.example.com/api/v4" {
-		t.Fatalf("APIBaseURL = %q", ref.APIBaseURL)
-	}
-	if _, ok := ParseRepositoryExternalRef(`{"providerKind":"github"}`); ok {
-		t.Fatal("github ref must not parse as gitlab external ref")
-	}
-	if _, ok := ParseRepositoryExternalRef(`{`); ok {
-		t.Fatal("malformed json must not parse")
-	}
-}
+

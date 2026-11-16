@@ -106,7 +106,9 @@ func (s *Service) gitlabFindBranch(project, sourceBranch string) (domain.Deliver
 				best = &cp
 			}
 		}
-		return best == nil && bestClosed == nil, nil // keep paging while nothing found
+		// 只要还没见到非 closed MR 就继续翻页：closed 只作兜底，
+		// 更新的 closed 不能挡住更旧的 opened/reopened。
+		return best == nil, nil
 	})
 	if err != nil {
 		return domain.DeliveryMR{}, false, err
